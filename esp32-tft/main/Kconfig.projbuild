@@ -1,0 +1,20 @@
+menu "SK1 Display Client"
+
+config SK1_WIFI_SSID
+    string "Wi-Fi SSID"
+    default ""
+
+config SK1_WIFI_PASSWORD
+    string "Wi-Fi password"
+    default ""
+
+config SK1_MOONRAKER_HOST
+    string "Moonraker host"
+    default "192.168.0.20"
+
+config SK1_MOONRAKER_PORT
+    int "Moonraker port"
+    range 1 65535
+    default 7125
+
+endmenu

@@ -1,0 +1,35 @@
+idf_component_register(
+    SRCS
+        "app_main.c"
+        "display/display_protocol.c"
+        "display/display_uart.c"
+        "klipper/moonraker_client.c"
+        "klipper/moonraker_websocket.c"
+        "system/app_state.c"
+        "system/app_watchdog.c"
+        "system/files_cache.c"
+        "system/thumbnail_cache.c"
+        "system/wifi_manager.c"
+        "thumbnails/thumbnail_worker.c"
+        "ui/ui_controller.c"
+        "ui/ui_pages_files.c"
+        "ui/ui_pages_home.c"
+        "ui/ui_pages_print.c"
+        "ui/ui_state.c"
+    INCLUDE_DIRS
+        "."
+        "display"
+        "klipper"
+        "system"
+        "thumbnails"
+        "ui"
+    PRIV_REQUIRES
+        esp_driver_uart
+        esp_http_client
+        esp_netif
+        esp_timer
+        esp_wifi
+        esp_websocket_client
+        json
+        nvs_flash
+)

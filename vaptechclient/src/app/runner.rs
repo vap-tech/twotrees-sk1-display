@@ -1,12 +1,15 @@
 use anyhow::Result;
 
 use crate::app::event::AppEvent;
+use crate::app::reducers::moonraker::reduce_moonraker_event;
 use crate::app::state::{AppState, Page};
 use crate::hmi::command::HmiCommand;
 use crate::hmi::event::HmiEvent;
 use crate::hmi::transport::HmiTransport;
+use crate::moonraker::event::MoonrakerEvent;
 use crate::ui::action_handler::handle_action;
 use crate::ui::effect::{MoonrakerRequest, UiEffect};
+use crate::ui::render_diff::render_diff;
 use crate::ui::route::resolve_touch;
 
 pub struct AppRunner<T: HmiTransport> {
@@ -28,6 +31,10 @@ impl<T: HmiTransport> AppRunner<T> {
         match event {
             AppEvent::Hmi(hmi_event) => {
                 self.handle_hmi_event(hmi_event)?;
+            }
+
+            AppEvent::Moonraker(moonraker_event) => {
+                self.handle_moonraker_event(moonraker_event)?;
             }
 
             AppEvent::Tick => {}
@@ -60,6 +67,20 @@ impl<T: HmiTransport> AppRunner<T> {
         Ok(())
     }
 
+    fn handle_moonraker_event(&mut self, event: MoonrakerEvent) -> Result<()> {
+        let old_state = self.state.clone();
+
+        reduce_moonraker_event(&mut self.state, event);
+
+        let commands = render_diff(&old_state, &self.state);
+
+        for command in commands {
+            self.transport.send(&command)?;
+        }
+
+        Ok(())
+    }
+
     fn execute_effect(&mut self, effect: UiEffect) -> Result<()> {
         match effect {
             UiEffect::Hmi(command) => {
@@ -83,6 +104,7 @@ mod tests {
 
     use crate::app::state::ActiveOperation;
     use crate::hmi::mock_transport::MockTransport;
+    use crate::moonraker::event::KlippyState;
 
     #[test]
     fn startup_sends_home_page() {
@@ -158,5 +180,82 @@ mod tests {
             runner.moonraker_requests,
             vec![MoonrakerRequest::PausePrint]
         );
+    }
+
+    #[test]
+    fn moonraker_temperature_event_updates_state_and_renders_home_diff() {
+        let transport = MockTransport::new();
+        let mut runner = AppRunner::new(transport);
+
+        runner.state.set_page(Page::Home);
+
+        runner
+            .handle_event(AppEvent::moonraker(MoonrakerEvent::temperatures(
+                215.0,
+                220.0,
+                59.6,
+                60.0,
+            )))
+            .unwrap();
+
+        assert_eq!(runner.state.temperatures.nozzle.current, 215.0);
+        assert_eq!(runner.state.temperatures.nozzle.target, 220.0);
+        assert_eq!(runner.state.temperatures.bed.current, 59.6);
+        assert_eq!(runner.state.temperatures.bed.target, 60.0);
+
+        assert_eq!(
+            runner.transport.sent,
+            vec![
+                b"n0.val=215\xFF\xFF\xFF".to_vec(),
+                b"n1.val=220\xFF\xFF\xFF".to_vec(),
+                b"n4.val=60\xFF\xFF\xFF".to_vec(),
+                b"n5.val=60\xFF\xFF\xFF".to_vec(),
+            ]
+        );
+    }
+
+    #[test]
+    fn moonraker_same_rounded_temperature_does_not_render_again() {
+        let transport = MockTransport::new();
+        let mut runner = AppRunner::new(transport);
+
+        runner.state.set_page(Page::Home);
+
+        runner
+            .handle_event(AppEvent::moonraker(MoonrakerEvent::temperatures(
+                215.1,
+                220.0,
+                60.0,
+                60.0,
+            )))
+            .unwrap();
+
+        runner.transport.sent.clear();
+
+        runner
+            .handle_event(AppEvent::moonraker(MoonrakerEvent::temperatures(
+                215.4,
+                220.0,
+                60.0,
+                60.0,
+            )))
+            .unwrap();
+
+        assert!(runner.transport.sent.is_empty());
+    }
+
+    #[test]
+    fn moonraker_klippy_ready_updates_state_without_rendering() {
+        let transport = MockTransport::new();
+        let mut runner = AppRunner::new(transport);
+
+        runner
+            .handle_event(AppEvent::moonraker(MoonrakerEvent::klippy_state(
+                KlippyState::Ready,
+            )))
+            .unwrap();
+
+        assert!(runner.state.printer.can_accept_commands);
+        assert!(runner.transport.sent.is_empty());
     }
 }

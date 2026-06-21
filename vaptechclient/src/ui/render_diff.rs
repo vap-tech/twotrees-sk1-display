@@ -1,0 +1,207 @@
+use crate::app::state::{AppState, Page};
+use crate::hmi::command::HmiCommand;
+use crate::ui::render_full::render_full;
+
+pub fn render_diff(old: &AppState, new: &AppState) -> Vec<HmiCommand> {
+    if old.ui.current_page != new.ui.current_page {
+        let mut commands = vec![
+            HmiCommand::page(new.ui.current_page.id()),
+        ];
+
+        commands.extend(render_full(new));
+        return commands;
+    }
+
+    match new.ui.current_page {
+        Page::Home => render_home_diff(old, new),
+        Page::MoveTemp => render_move_temp_diff(old, new),
+        _ => Vec::new(),
+    }
+}
+
+fn render_home_diff(old: &AppState, new: &AppState) -> Vec<HmiCommand> {
+    render_temperature_diff(old, new)
+}
+
+fn render_move_temp_diff(old: &AppState, new: &AppState) -> Vec<HmiCommand> {
+    let mut commands = render_temperature_diff(old, new);
+
+    if old.ui.move_distance != new.ui.move_distance {
+        commands.push(HmiCommand::value(
+            "n3",
+            new.ui.move_distance.value_mm() as i32,
+        ));
+    }
+
+    commands
+}
+
+fn render_temperature_diff(old: &AppState, new: &AppState) -> Vec<HmiCommand> {
+    let mut commands = Vec::new();
+
+    push_if_changed(
+        &mut commands,
+        "n0",
+        round_temperature(old.temperatures.nozzle.current),
+        round_temperature(new.temperatures.nozzle.current),
+    );
+
+    push_if_changed(
+        &mut commands,
+        "n1",
+        round_temperature(old.temperatures.nozzle.target),
+        round_temperature(new.temperatures.nozzle.target),
+    );
+
+    push_if_changed(
+        &mut commands,
+        "n4",
+        round_temperature(old.temperatures.bed.current),
+        round_temperature(new.temperatures.bed.current),
+    );
+
+    push_if_changed(
+        &mut commands,
+        "n5",
+        round_temperature(old.temperatures.bed.target),
+        round_temperature(new.temperatures.bed.target),
+    );
+
+    commands
+}
+
+fn push_if_changed(
+    commands: &mut Vec<HmiCommand>,
+    component: &str,
+    old_value: i32,
+    new_value: i32,
+) {
+    if old_value != new_value {
+        commands.push(HmiCommand::value(component, new_value));
+    }
+}
+
+fn round_temperature(value: f32) -> i32 {
+    value.round() as i32
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use crate::app::state::{MoveDistance, Page};
+
+    #[test]
+    fn page_change_sends_page_and_full_render() {
+        let old = AppState::default();
+
+        let mut new = AppState::default();
+        new.set_page(Page::MoveTemp);
+        new.set_nozzle_temperature(200.0, 210.0);
+        new.set_bed_temperature(50.0, 55.0);
+        new.ui.move_distance = MoveDistance::Mm30;
+
+        let commands = render_diff(&old, &new);
+
+        assert_eq!(
+            commands,
+            vec![
+                HmiCommand::page(Page::MoveTemp.id()),
+                HmiCommand::value("n0", 200),
+                HmiCommand::value("n1", 210),
+                HmiCommand::value("n4", 50),
+                HmiCommand::value("n5", 55),
+                HmiCommand::value("n3", 30),
+            ]
+        );
+    }
+
+    #[test]
+    fn same_home_page_no_changes_returns_empty() {
+        let old = AppState::default();
+        let new = AppState::default();
+
+        let commands = render_diff(&old, &new);
+
+        assert!(commands.is_empty());
+    }
+
+    #[test]
+    fn same_home_page_temperature_change_renders_only_changed_value() {
+        let mut old = AppState::default();
+        old.set_page(Page::Home);
+        old.set_nozzle_temperature(215.0, 220.0);
+        old.set_bed_temperature(60.0, 60.0);
+
+        let mut new = old.clone();
+        new.set_nozzle_temperature(216.0, 220.0);
+
+        let commands = render_diff(&old, &new);
+
+        assert_eq!(
+            commands,
+            vec![HmiCommand::value("n0", 216)]
+        );
+    }
+
+    #[test]
+    fn rounded_temperature_same_value_is_not_rendered() {
+        let mut old = AppState::default();
+        old.set_page(Page::Home);
+        old.set_nozzle_temperature(215.1, 220.0);
+
+        let mut new = old.clone();
+        new.set_nozzle_temperature(215.4, 220.0);
+
+        let commands = render_diff(&old, &new);
+
+        assert!(commands.is_empty());
+    }
+
+    #[test]
+    fn rounded_temperature_changed_value_is_rendered() {
+        let mut old = AppState::default();
+        old.set_page(Page::Home);
+        old.set_nozzle_temperature(215.4, 220.0);
+
+        let mut new = old.clone();
+        new.set_nozzle_temperature(215.6, 220.0);
+
+        let commands = render_diff(&old, &new);
+
+        assert_eq!(
+            commands,
+            vec![HmiCommand::value("n0", 216)]
+        );
+    }
+
+    #[test]
+    fn same_move_temp_page_move_distance_change_is_rendered() {
+        let mut old = AppState::default();
+        old.set_page(Page::MoveTemp);
+        old.ui.move_distance = MoveDistance::Mm10;
+
+        let mut new = old.clone();
+        new.ui.move_distance = MoveDistance::Mm30;
+
+        let commands = render_diff(&old, &new);
+
+        assert_eq!(
+            commands,
+            vec![HmiCommand::value("n3", 30)]
+        );
+    }
+
+    #[test]
+    fn unknown_page_returns_no_diff_commands() {
+        let mut old = AppState::default();
+        old.set_page(Page::Unknown(99));
+
+        let mut new = old.clone();
+        new.set_nozzle_temperature(200.0, 210.0);
+
+        let commands = render_diff(&old, &new);
+
+        assert!(commands.is_empty());
+    }
+}

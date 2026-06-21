@@ -1,0 +1,360 @@
+use anyhow::{Context, Result};
+use serde_json::Value;
+
+use crate::moonraker::event::{
+    HeaterKind, KlippyState, MoonrakerEvent, PrinterStatus,
+};
+
+pub fn parse_moonraker_message(raw: &str) -> Result<Vec<MoonrakerEvent>> {
+    let json: Value = serde_json::from_str(raw)
+        .context("failed to parse moonraker json")?;
+
+    let mut events = Vec::new();
+
+    if let Some(method) = json.get("method").and_then(Value::as_str) {
+        match method {
+            "notify_status_update" => parse_notify_status_update(&json, &mut events),
+            "notify_gcode_response" => parse_gcode_response(&json, &mut events),
+            _ => events.push(MoonrakerEvent::Unknown),
+        }
+    } else if let Some(result) = json.get("result") {
+        parse_result(result, &mut events);
+    } else {
+        events.push(MoonrakerEvent::Unknown);
+    }
+
+    Ok(events)
+}
+
+fn parse_result(result: &Value, events: &mut Vec<MoonrakerEvent>) {
+    if let Some(state) = result.get("klippy_state").and_then(Value::as_str) {
+        events.push(MoonrakerEvent::klippy_state(
+            KlippyState::from_moonraker(state),
+        ));
+    }
+
+    if let Some(status) = result.get("status") {
+        parse_status_object(status, events);
+    }
+}
+
+fn parse_notify_status_update(json: &Value, events: &mut Vec<MoonrakerEvent>) {
+    let Some(status) = json
+        .get("params")
+        .and_then(Value::as_array)
+        .and_then(|params| params.first())
+    else {
+        events.push(MoonrakerEvent::Unknown);
+        return;
+    };
+
+    parse_status_object(status, events);
+}
+
+fn parse_status_object(status: &Value, events: &mut Vec<MoonrakerEvent>) {
+    parse_heater(status, "extruder", HeaterKind::Nozzle, events);
+    parse_heater(status, "heater_bed", HeaterKind::Bed, events);
+    parse_print_stats(status, events);
+}
+
+fn parse_heater(
+    status: &Value,
+    key: &str,
+    heater: HeaterKind,
+    events: &mut Vec<MoonrakerEvent>,
+) {
+    let Some(obj) = status.get(key) else {
+        return;
+    };
+
+    let current = obj
+        .get("temperature")
+        .and_then(Value::as_f64)
+        .map(|v| v as f32);
+
+    let target = obj
+        .get("target")
+        .and_then(Value::as_f64)
+        .map(|v| v as f32);
+
+    if current.is_some() || target.is_some() {
+        events.push(MoonrakerEvent::HeaterUpdate {
+            heater,
+            current,
+            target,
+        });
+    }
+}
+
+fn parse_print_stats(status: &Value, events: &mut Vec<MoonrakerEvent>) {
+    let Some(print_stats) = status.get("print_stats") else {
+        return;
+    };
+
+    if let Some(state) = print_stats.get("state").and_then(Value::as_str) {
+        events.push(MoonrakerEvent::printer_status(
+            PrinterStatus::from_print_stats(state),
+        ));
+    }
+}
+
+fn parse_gcode_response(json: &Value, events: &mut Vec<MoonrakerEvent>) {
+    let Some(params) = json.get("params").and_then(Value::as_array) else {
+        events.push(MoonrakerEvent::Unknown);
+        return;
+    };
+
+    for value in params {
+        if let Some(text) = value.as_str() {
+            events.push(MoonrakerEvent::gcode_response(text));
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_server_info_klippy_ready() {
+        let raw = r#"{
+            "result": {
+                "klippy_connected": true,
+                "klippy_state": "ready"
+            }
+        }"#;
+
+        let events = parse_moonraker_message(raw).unwrap();
+
+        assert_eq!(
+            events,
+            vec![MoonrakerEvent::klippy_state(KlippyState::Ready)]
+        );
+    }
+
+    #[test]
+    fn parses_initial_snapshot_result_status() {
+        let raw = r#"{
+            "jsonrpc": "2.0",
+            "result": {
+                "eventtime": 16724.305130724,
+                "status": {
+                    "print_stats": {
+                        "filename": "Single Drawer_PLA_8h47m.gcode",
+                        "state": "printing"
+                    },
+                    "extruder": {
+                        "temperature": 209.91,
+                        "target": 210.0
+                    },
+                    "heater_bed": {
+                        "temperature": 50.0,
+                        "target": 50.0
+                    }
+                }
+            },
+            "id": 1
+        }"#;
+
+        let events = parse_moonraker_message(raw).unwrap();
+
+        assert_eq!(
+            events,
+            vec![
+                MoonrakerEvent::HeaterUpdate {
+                    heater: HeaterKind::Nozzle,
+                    current: Some(209.91),
+                    target: Some(210.0),
+                },
+                MoonrakerEvent::HeaterUpdate {
+                    heater: HeaterKind::Bed,
+                    current: Some(50.0),
+                    target: Some(50.0),
+                },
+                MoonrakerEvent::printer_status(PrinterStatus::Printing),
+            ]
+        );
+    }
+
+    #[test]
+    fn parses_extruder_partial_temperature_update() {
+        let raw = r#"{
+            "method": "notify_status_update",
+            "params": [
+                {
+                    "extruder": {
+                        "temperature": 209.91
+                    }
+                },
+                16728.319308143
+            ]
+        }"#;
+
+        let events = parse_moonraker_message(raw).unwrap();
+
+        assert_eq!(
+            events,
+            vec![MoonrakerEvent::HeaterUpdate {
+                heater: HeaterKind::Nozzle,
+                current: Some(209.91),
+                target: None,
+            }]
+        );
+    }
+
+    #[test]
+    fn ignores_heater_power_only_update() {
+        let raw = r#"{
+            "method": "notify_status_update",
+            "params": [
+                {
+                    "heater_bed": {
+                        "power": 0.16303507782301946
+                    }
+                },
+                16728.319308143
+            ]
+        }"#;
+
+        let events = parse_moonraker_message(raw).unwrap();
+
+        assert!(events.is_empty());
+    }
+
+    #[test]
+    fn parses_bed_target_only_update() {
+        let raw = r#"{
+            "method": "notify_status_update",
+            "params": [
+                {
+                    "heater_bed": {
+                        "target": 60.0
+                    }
+                }
+            ]
+        }"#;
+
+        let events = parse_moonraker_message(raw).unwrap();
+
+        assert_eq!(
+            events,
+            vec![MoonrakerEvent::HeaterUpdate {
+                heater: HeaterKind::Bed,
+                current: None,
+                target: Some(60.0),
+            }]
+        );
+    }
+
+    #[test]
+    fn parses_print_stats_state() {
+        let raw = r#"{
+            "method": "notify_status_update",
+            "params": [
+                {
+                    "print_stats": {
+                        "state": "printing"
+                    }
+                }
+            ]
+        }"#;
+
+        let events = parse_moonraker_message(raw).unwrap();
+
+        assert_eq!(
+            events,
+            vec![MoonrakerEvent::printer_status(PrinterStatus::Printing)]
+        );
+    }
+
+    #[test]
+    fn ignores_print_stats_duration_only_update() {
+        let raw = r#"{
+            "method": "notify_status_update",
+            "params": [
+                {
+                    "print_stats": {
+                        "total_duration": 9908.086828475,
+                        "print_duration": 9706.923499712
+                    }
+                }
+            ]
+        }"#;
+
+        let events = parse_moonraker_message(raw).unwrap();
+
+        assert!(events.is_empty());
+    }
+
+    #[test]
+    fn parses_multiple_status_updates() {
+        let raw = r#"{
+            "method": "notify_status_update",
+            "params": [
+                {
+                    "extruder": {
+                        "temperature": 215.0,
+                        "target": 220.0
+                    },
+                    "heater_bed": {
+                        "temperature": 59.5,
+                        "target": 60.0
+                    },
+                    "print_stats": {
+                        "state": "printing"
+                    }
+                }
+            ]
+        }"#;
+
+        let events = parse_moonraker_message(raw).unwrap();
+
+        assert_eq!(
+            events,
+            vec![
+                MoonrakerEvent::HeaterUpdate {
+                    heater: HeaterKind::Nozzle,
+                    current: Some(215.0),
+                    target: Some(220.0),
+                },
+                MoonrakerEvent::HeaterUpdate {
+                    heater: HeaterKind::Bed,
+                    current: Some(59.5),
+                    target: Some(60.0),
+                },
+                MoonrakerEvent::printer_status(PrinterStatus::Printing),
+            ]
+        );
+    }
+
+    #[test]
+    fn parses_gcode_response() {
+        let raw = r#"{
+            "method": "notify_gcode_response",
+            "params": ["ok"]
+        }"#;
+
+        let events = parse_moonraker_message(raw).unwrap();
+
+        assert_eq!(events, vec![MoonrakerEvent::gcode_response("ok")]);
+    }
+
+    #[test]
+    fn unknown_method_does_not_fail() {
+        let raw = r#"{
+            "method": "notify_proc_stat_update",
+            "params": []
+        }"#;
+
+        let events = parse_moonraker_message(raw).unwrap();
+
+        assert_eq!(events, vec![MoonrakerEvent::Unknown]);
+    }
+
+    #[test]
+    fn invalid_json_returns_error() {
+        let result = parse_moonraker_message("{ bad json");
+
+        assert!(result.is_err());
+    }
+}

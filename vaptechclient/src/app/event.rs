@@ -1,17 +1,21 @@
 use crate::hmi::event::HmiEvent;
+use crate::moonraker::event::MoonrakerEvent;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum AppEvent {
     Hmi(HmiEvent),
-
+    Moonraker(MoonrakerEvent),
     Tick,
-
     Shutdown,
 }
 
 impl AppEvent {
     pub fn hmi(event: HmiEvent) -> Self {
         Self::Hmi(event)
+    }
+
+    pub fn moonraker(event: MoonrakerEvent) -> Self {
+        Self::Moonraker(event)
     }
 
     pub fn tick() -> Self {
@@ -38,6 +42,16 @@ mod tests {
     }
 
     #[test]
+    fn moonraker_event_constructor() {
+        let event = MoonrakerEvent::connected();
+
+        assert_eq!(
+            AppEvent::moonraker(event.clone()),
+            AppEvent::Moonraker(event)
+        );
+    }
+
+    #[test]
     fn tick_constructor() {
         assert_eq!(AppEvent::tick(), AppEvent::Tick);
     }
@@ -45,12 +59,5 @@ mod tests {
     #[test]
     fn shutdown_constructor() {
         assert_eq!(AppEvent::shutdown(), AppEvent::Shutdown);
-    }
-
-    #[test]
-    fn debug_output_contains_variant_name() {
-        let event = AppEvent::Tick;
-
-        assert!(format!("{:?}", event).contains("Tick"));
     }
 }

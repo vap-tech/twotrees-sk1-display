@@ -21,6 +21,12 @@ pub enum MoonrakerEvent {
         total_duration: f32,
     },
 
+    HeaterUpdate {
+        heater: HeaterKind,
+        current: Option<f32>,
+        target: Option<f32>,
+    },
+
     FileListChanged,
 
     GcodeResponse(String),
@@ -48,6 +54,12 @@ pub enum PrinterStatus {
     Complete,
     Cancelled,
     Error,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HeaterKind {
+    Nozzle,
+    Bed,
 }
 
 impl MoonrakerEvent {

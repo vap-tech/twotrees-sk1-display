@@ -2,6 +2,7 @@ mod config;
 mod hmi;
 mod app;
 mod ui;
+mod moonraker;
 
 use anyhow::Result;
 use clap::Parser;

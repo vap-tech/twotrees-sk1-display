@@ -1,9 +1,18 @@
-use crate::app::state::{ActiveOperation, AppState, FanKind, MoveDistance, Page};
+use crate::app::state::{ActiveOperation, AppState, FanKind, MoveDistance, Page, PrinterStatus};
 use crate::hmi::command::HmiCommand;
 use crate::ui::effect::{MoonrakerRequest, UiEffect};
 use crate::ui::route::UiAction;
 
 pub fn handle_action(state: &mut AppState, action: UiAction) -> Vec<UiEffect> {
+    if action_is_blocked_by_printer_state(state, &action) {
+        tracing::debug!(
+            ?action,
+            printer_status = ?state.printer.status,
+            "UI action blocked by printer state"
+        );
+        return Vec::new();
+    }
+
     match action {
         UiAction::ChangePage(page) => handle_change_page(state, page),
 
@@ -81,6 +90,31 @@ pub fn handle_action(state: &mut AppState, action: UiAction) -> Vec<UiEffect> {
 
         UiAction::UnknownTouch { .. } => Vec::new(),
     }
+}
+
+fn action_is_blocked_by_printer_state(state: &AppState, action: &UiAction) -> bool {
+    match state.printer.status {
+        PrinterStatus::Printing => is_printing_blocked_action(action),
+        PrinterStatus::Paused => is_paused_blocked_action(action),
+        _ => false,
+    }
+}
+
+fn is_printing_blocked_action(action: &UiAction) -> bool {
+    matches!(
+        action,
+        UiAction::ChangePage(Page::Calibration | Page::MoveTemp | Page::LoadUnload)
+            | UiAction::HomeAllAxes
+            | UiAction::LoadFilament
+            | UiAction::UnloadFilament
+    )
+}
+
+fn is_paused_blocked_action(action: &UiAction) -> bool {
+    matches!(
+        action,
+        UiAction::ChangePage(Page::Calibration | Page::MoveTemp) | UiAction::HomeAllAxes
+    )
 }
 
 fn handle_change_page(state: &mut AppState, page: Page) -> Vec<UiEffect> {
@@ -226,6 +260,83 @@ mod tests {
         assert!(state.ui.navigation_locked);
         assert_eq!(state.process.active_operation, ActiveOperation::Homing);
         assert_eq!(effects, vec![UiEffect::gcode("G28")]);
+    }
+
+    #[test]
+    fn printing_blocks_calibration_move_and_load_unload_navigation() {
+        let mut state = AppState::default();
+        state.printer.status = PrinterStatus::Printing;
+
+        for page in [Page::Calibration, Page::MoveTemp, Page::LoadUnload] {
+            let effects = handle_action(&mut state, UiAction::ChangePage(page));
+
+            assert_eq!(state.ui.current_page, Page::Home);
+            assert!(effects.is_empty());
+        }
+    }
+
+    #[test]
+    fn printing_keeps_settings_and_files_navigation_allowed() {
+        let mut state = AppState::default();
+        state.printer.status = PrinterStatus::Printing;
+
+        let effects = handle_action(&mut state, UiAction::ChangePage(Page::Settings));
+
+        assert_eq!(state.ui.current_page, Page::Settings);
+        assert_eq!(
+            effects,
+            vec![UiEffect::hmi(HmiCommand::page(Page::Settings.id()))]
+        );
+
+        let effects = handle_action(&mut state, UiAction::ChangePage(Page::Files));
+
+        assert_eq!(state.ui.current_page, Page::Files);
+        assert_eq!(
+            effects,
+            vec![UiEffect::hmi(HmiCommand::page(Page::Files.id()))]
+        );
+    }
+
+    #[test]
+    fn printing_blocks_homing_and_filament_commands() {
+        let mut state = AppState::default();
+        state.printer.status = PrinterStatus::Printing;
+
+        for action in [
+            UiAction::HomeAllAxes,
+            UiAction::LoadFilament,
+            UiAction::UnloadFilament,
+        ] {
+            let effects = handle_action(&mut state, action);
+
+            assert_eq!(state.process.active_operation, ActiveOperation::None);
+            assert!(!state.ui.navigation_locked);
+            assert!(effects.is_empty());
+        }
+    }
+
+    #[test]
+    fn paused_blocks_calibration_and_move_but_allows_load_unload() {
+        let mut state = AppState::default();
+        state.printer.status = PrinterStatus::Paused;
+
+        let effects = handle_action(&mut state, UiAction::ChangePage(Page::Calibration));
+
+        assert_eq!(state.ui.current_page, Page::Home);
+        assert!(effects.is_empty());
+
+        let effects = handle_action(&mut state, UiAction::ChangePage(Page::MoveTemp));
+
+        assert_eq!(state.ui.current_page, Page::Home);
+        assert!(effects.is_empty());
+
+        let effects = handle_action(&mut state, UiAction::ChangePage(Page::LoadUnload));
+
+        assert_eq!(state.ui.current_page, Page::LoadUnload);
+        assert_eq!(
+            effects,
+            vec![UiEffect::hmi(HmiCommand::page(Page::LoadUnload.id()))]
+        );
     }
 
     #[test]

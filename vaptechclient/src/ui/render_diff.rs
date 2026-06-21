@@ -1,4 +1,4 @@
-use crate::app::state::{AppState, Page};
+use crate::app::state::{AppState, Page, PrinterStatus};
 use crate::hmi::command::HmiCommand;
 use crate::ui::render_full::render_full;
 
@@ -36,7 +36,14 @@ fn render_move_temp_diff(old: &AppState, new: &AppState) -> Vec<HmiCommand> {
 }
 
 fn render_print_diff(old: &AppState, new: &AppState) -> Vec<HmiCommand> {
-    let mut commands = render_temperature_diff(old, new);
+    let mut commands = render_print_temperature_diff(old, new);
+
+    if old.print.filename != new.print.filename {
+        commands.push(HmiCommand::text(
+            "g0",
+            new.print.filename.as_deref().unwrap_or(""),
+        ));
+    }
 
     if old.print.progress_percent != new.print.progress_percent {
         commands.push(HmiCommand::value("n6", new.print.progress_percent as i32));
@@ -44,6 +51,41 @@ fn render_print_diff(old: &AppState, new: &AppState) -> Vec<HmiCommand> {
 
     push_elapsed_time_diff(&mut commands, old, new);
     push_remaining_time_diff(&mut commands, old, new);
+    push_print_button_diff(&mut commands, old, new);
+
+    commands
+}
+
+fn render_print_temperature_diff(old: &AppState, new: &AppState) -> Vec<HmiCommand> {
+    let mut commands = Vec::new();
+
+    push_if_changed(
+        &mut commands,
+        "n0",
+        round_temperature(old.temperatures.nozzle.current),
+        round_temperature(new.temperatures.nozzle.current),
+    );
+
+    push_if_changed(
+        &mut commands,
+        "n1",
+        round_temperature(old.temperatures.bed.current),
+        round_temperature(new.temperatures.bed.current),
+    );
+
+    push_text_if_changed(
+        &mut commands,
+        "t8",
+        round_temperature(old.temperatures.nozzle.target),
+        round_temperature(new.temperatures.nozzle.target),
+    );
+
+    push_text_if_changed(
+        &mut commands,
+        "t9",
+        round_temperature(old.temperatures.bed.target),
+        round_temperature(new.temperatures.bed.target),
+    );
 
     commands
 }
@@ -68,12 +110,21 @@ fn push_remaining_time_diff(commands: &mut Vec<HmiCommand>, old: &AppState, new:
         return;
     }
 
-    let Some(minutes) = new_minutes else {
-        return;
-    };
+    let minutes = new_minutes.unwrap_or(0);
 
     commands.push(HmiCommand::value("n7", (minutes / 60) as i32));
     commands.push(HmiCommand::value("n8", (minutes % 60) as i32));
+}
+
+fn push_print_button_diff(commands: &mut Vec<HmiCommand>, old: &AppState, new: &AppState) {
+    if old.printer.status == new.printer.status {
+        return;
+    }
+
+    let (pic, pressed_pic) = print_pause_button_pics(new.printer.status);
+
+    commands.push(HmiCommand::picture("b5", pic));
+    commands.push(HmiCommand::picture_pressed("b5", pressed_pic));
 }
 
 fn render_temperature_diff(old: &AppState, new: &AppState) -> Vec<HmiCommand> {
@@ -121,15 +172,34 @@ fn push_if_changed(
     }
 }
 
+fn push_text_if_changed(
+    commands: &mut Vec<HmiCommand>,
+    component: &str,
+    old_value: i32,
+    new_value: i32,
+) {
+    if old_value != new_value {
+        commands.push(HmiCommand::text(component, new_value.to_string()));
+    }
+}
+
 fn round_temperature(value: f32) -> i32 {
     value.round() as i32
+}
+
+fn print_pause_button_pics(status: PrinterStatus) -> (u16, u16) {
+    if status == PrinterStatus::Paused {
+        (5, 4)
+    } else {
+        (4, 5)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    use crate::app::state::{MoveDistance, Page};
+    use crate::app::state::{MoveDistance, Page, PrinterStatus};
 
     #[test]
     fn page_change_sends_page_and_full_render() {
@@ -238,6 +308,44 @@ mod tests {
     }
 
     #[test]
+    fn same_print_page_filename_change_is_rendered() {
+        let mut old = AppState::default();
+        old.set_page(Page::Printing);
+        old.print.filename = None;
+
+        let mut new = old.clone();
+        new.print.filename = Some("cube.gcode".to_string());
+
+        let commands = render_diff(&old, &new);
+
+        assert_eq!(commands, vec![HmiCommand::text("g0", "cube.gcode")]);
+    }
+
+    #[test]
+    fn same_print_page_temperature_change_uses_print_page_components() {
+        let mut old = AppState::default();
+        old.set_page(Page::Printing);
+        old.set_nozzle_temperature(209.4, 210.0);
+        old.set_bed_temperature(49.4, 50.0);
+
+        let mut new = old.clone();
+        new.set_nozzle_temperature(210.0, 220.0);
+        new.set_bed_temperature(50.0, 60.0);
+
+        let commands = render_diff(&old, &new);
+
+        assert_eq!(
+            commands,
+            vec![
+                HmiCommand::value("n0", 210),
+                HmiCommand::value("n1", 50),
+                HmiCommand::text("t8", "220"),
+                HmiCommand::text("t9", "60"),
+            ]
+        );
+    }
+
+    #[test]
     fn same_print_page_elapsed_minute_change_is_rendered_as_hours_and_minutes() {
         let mut old = AppState::default();
         old.set_page(Page::Printing);
@@ -282,6 +390,43 @@ mod tests {
         assert_eq!(
             commands,
             vec![HmiCommand::value("n7", 2), HmiCommand::value("n8", 42),]
+        );
+    }
+
+    #[test]
+    fn same_print_page_remaining_time_none_clears_values() {
+        let mut old = AppState::default();
+        old.set_page(Page::Printing);
+        old.print.remaining_seconds = Some(3600);
+
+        let mut new = old.clone();
+        new.print.remaining_seconds = None;
+
+        let commands = render_diff(&old, &new);
+
+        assert_eq!(
+            commands,
+            vec![HmiCommand::value("n7", 0), HmiCommand::value("n8", 0)]
+        );
+    }
+
+    #[test]
+    fn same_print_page_paused_status_updates_pause_button() {
+        let mut old = AppState::default();
+        old.set_page(Page::Printing);
+        old.printer.status = PrinterStatus::Printing;
+
+        let mut new = old.clone();
+        new.printer.status = PrinterStatus::Paused;
+
+        let commands = render_diff(&old, &new);
+
+        assert_eq!(
+            commands,
+            vec![
+                HmiCommand::picture("b5", 5),
+                HmiCommand::picture_pressed("b5", 4),
+            ]
         );
     }
 

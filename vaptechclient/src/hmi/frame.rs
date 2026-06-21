@@ -35,6 +35,11 @@ impl FrameBuffer {
     }
 
     pub fn push_byte(&mut self, byte: u8) -> Option<Vec<u8>> {
+        if byte == 0x91 && self.buffer.iter().all(|&pending| pending == 0x00) {
+            self.buffer.clear();
+            return Some(vec![0x91]);
+        }
+
         self.buffer.push(byte);
 
         if has_terminator(&self.buffer) {
@@ -118,14 +123,40 @@ mod tests {
     fn frame_buffer_splits_multiple_frames() {
         let mut buffer = FrameBuffer::new();
 
-        let frames = buffer.push_bytes(&[0x91, 0xFF, 0xFF, 0xFF, 0x65, 33, 7, 0xFF, 0xFF, 0xFF]);
+        let frames = buffer.push_bytes(&[0x91, 0x65, 33, 7, 0xFF, 0xFF, 0xFF]);
 
         assert_eq!(
             frames,
-            vec![
-                vec![0x91, 0xFF, 0xFF, 0xFF],
-                vec![0x65, 33, 7, 0xFF, 0xFF, 0xFF],
-            ]
+            vec![vec![0x91], vec![0x65, 33, 7, 0xFF, 0xFF, 0xFF],]
+        );
+    }
+
+    #[test]
+    fn frame_buffer_returns_bare_startup_frame() {
+        let mut buffer = FrameBuffer::new();
+
+        assert_eq!(buffer.push_byte(0x91), Some(vec![0x91]));
+        assert!(buffer.is_empty());
+    }
+
+    #[test]
+    fn frame_buffer_recovers_startup_after_leading_noise() {
+        let mut buffer = FrameBuffer::new();
+
+        assert_eq!(buffer.push_byte(0x00), None);
+        assert_eq!(buffer.push_byte(0x91), Some(vec![0x91]));
+        assert!(buffer.is_empty());
+    }
+
+    #[test]
+    fn frame_buffer_keeps_startup_byte_inside_terminated_frame() {
+        let mut buffer = FrameBuffer::new();
+
+        let frames = buffer.push_bytes(&[0x71, 0x91, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF]);
+
+        assert_eq!(
+            frames,
+            vec![vec![0x71, 0x91, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF]]
         );
     }
 

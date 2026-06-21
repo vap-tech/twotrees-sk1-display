@@ -1,9 +1,10 @@
-use crate::app::state::{AppState, Page};
+use crate::app::state::{AppState, Page, PrinterStatus};
 use crate::hmi::command::HmiCommand;
 
 pub fn render_full(state: &AppState) -> Vec<HmiCommand> {
     match state.ui.current_page {
         Page::Home => render_home_full(state),
+        Page::Print | Page::Printing => render_print_full(state),
         Page::MoveTemp => render_move_temp_full(state),
         Page::Settings => render_settings_full(state),
         _ => Vec::new(),
@@ -29,6 +30,36 @@ fn render_move_temp_full(state: &AppState) -> Vec<HmiCommand> {
     ]
 }
 
+fn render_print_full(state: &AppState) -> Vec<HmiCommand> {
+    let elapsed_minutes = state.print.elapsed_seconds / 60;
+    let remaining_minutes = state.print.remaining_seconds.unwrap_or(0) / 60;
+    let (pause_pic, pause_pressed_pic) = print_pause_button_pics(state.printer.status);
+    let filename = state.print.filename.as_deref().unwrap_or("");
+
+    vec![
+        HmiCommand::picture("Print_Trun_1.p0", 67),
+        HmiCommand::text("g0", filename),
+        HmiCommand::value("n0", round_temperature(state.temperatures.nozzle.current)),
+        HmiCommand::value("n1", round_temperature(state.temperatures.bed.current)),
+        HmiCommand::text(
+            "t8",
+            round_temperature(state.temperatures.nozzle.target).to_string(),
+        ),
+        HmiCommand::text(
+            "t9",
+            round_temperature(state.temperatures.bed.target).to_string(),
+        ),
+        HmiCommand::value("n6", state.print.progress_percent as i32),
+        HmiCommand::value("n4", (elapsed_minutes / 60) as i32),
+        HmiCommand::value("n5", (elapsed_minutes % 60) as i32),
+        HmiCommand::value("n7", (remaining_minutes / 60) as i32),
+        HmiCommand::value("n8", (remaining_minutes % 60) as i32),
+        HmiCommand::visible("cp0", false),
+        HmiCommand::picture("b5", pause_pic),
+        HmiCommand::picture_pressed("b5", pause_pressed_pic),
+    ]
+}
+
 fn render_settings_full(_state: &AppState) -> Vec<HmiCommand> {
     Vec::new()
 }
@@ -37,11 +68,19 @@ fn round_temperature(value: f32) -> i32 {
     value.round() as i32
 }
 
+fn print_pause_button_pics(status: PrinterStatus) -> (u16, u16) {
+    if status == PrinterStatus::Paused {
+        (5, 4)
+    } else {
+        (4, 5)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    use crate::app::state::{MoveDistance, Page};
+    use crate::app::state::{MoveDistance, Page, PrinterStatus};
 
     #[test]
     fn render_home_full_temperatures() {
@@ -86,6 +125,67 @@ mod tests {
                 HmiCommand::value("n3", 30),
             ]
         );
+    }
+
+    #[test]
+    fn render_print_full_includes_print_page_fields() {
+        let mut state = AppState::default();
+
+        state.set_page(Page::Printing);
+        state.set_nozzle_temperature(210.0, 220.0);
+        state.set_bed_temperature(50.0, 60.0);
+        state.print.filename = Some("cube.gcode".to_string());
+        state.print.progress_percent = 32;
+        state.print.elapsed_seconds = 2 * 3600 + 41 * 60;
+        state.print.remaining_seconds = Some(5 * 3600 + 52 * 60);
+
+        let commands = render_full(&state);
+
+        assert_eq!(
+            commands,
+            vec![
+                HmiCommand::picture("Print_Trun_1.p0", 67),
+                HmiCommand::text("g0", "cube.gcode"),
+                HmiCommand::value("n0", 210),
+                HmiCommand::value("n1", 50),
+                HmiCommand::text("t8", "220"),
+                HmiCommand::text("t9", "60"),
+                HmiCommand::value("n6", 32),
+                HmiCommand::value("n4", 2),
+                HmiCommand::value("n5", 41),
+                HmiCommand::value("n7", 5),
+                HmiCommand::value("n8", 52),
+                HmiCommand::visible("cp0", false),
+                HmiCommand::picture("b5", 4),
+                HmiCommand::picture_pressed("b5", 5),
+            ]
+        );
+    }
+
+    #[test]
+    fn render_print_full_clears_unknown_remaining_time() {
+        let mut state = AppState::default();
+
+        state.set_page(Page::Printing);
+        state.print.remaining_seconds = None;
+
+        let commands = render_full(&state);
+
+        assert!(commands.contains(&HmiCommand::value("n7", 0)));
+        assert!(commands.contains(&HmiCommand::value("n8", 0)));
+    }
+
+    #[test]
+    fn render_print_full_uses_resume_button_when_paused() {
+        let mut state = AppState::default();
+
+        state.set_page(Page::Printing);
+        state.printer.status = PrinterStatus::Paused;
+
+        let commands = render_full(&state);
+
+        assert!(commands.contains(&HmiCommand::picture("b5", 5)));
+        assert!(commands.contains(&HmiCommand::picture_pressed("b5", 4)));
     }
 
     #[test]

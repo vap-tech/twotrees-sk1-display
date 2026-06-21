@@ -3,7 +3,7 @@ host = "192.168.0.20"
 moonraker_port = 7125
 
 [hmi]
-serial = "/dev/ttyS1"
+serial = "/dev/ttyUSB0"
 baud = 115200
 
 [ui]

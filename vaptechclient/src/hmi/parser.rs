@@ -4,6 +4,10 @@ use crate::hmi::event::{HmiEvent, HmiStatus};
 use crate::hmi::frame::payload_without_terminator;
 
 pub fn parse_frame(frame: &[u8]) -> Result<HmiEvent> {
+    if frame == [0x91] {
+        return Ok(HmiEvent::Startup);
+    }
+
     let payload = payload_without_terminator(frame)?;
 
     if payload.is_empty() {
@@ -11,7 +15,7 @@ pub fn parse_frame(frame: &[u8]) -> Result<HmiEvent> {
     }
 
     match payload[0] {
-        0x91 => parse_startup(payload),
+        0x91 => bail!("startup frame must be bare 0x91 without terminator"),
         0x65 => parse_touch(payload),
         0x71 => parse_numeric(payload),
         0x70 => parse_text(payload),
@@ -19,14 +23,6 @@ pub fn parse_frame(frame: &[u8]) -> Result<HmiEvent> {
         0x1C => parse_status(payload, HmiStatus::Error),
         code => Ok(HmiEvent::Status(HmiStatus::Code(code))),
     }
-}
-
-fn parse_startup(payload: &[u8]) -> Result<HmiEvent> {
-    if payload.len() != 1 {
-        bail!("invalid startup frame length: {}", payload.len());
-    }
-
-    Ok(HmiEvent::Startup)
 }
 
 fn parse_touch(payload: &[u8]) -> Result<HmiEvent> {
@@ -72,10 +68,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parse_startup_frame() {
-        let event = parse_frame(&[0x91, 0xFF, 0xFF, 0xFF]).unwrap();
+    fn parse_bare_startup_frame() {
+        let event = parse_frame(&[0x91]).unwrap();
 
         assert_eq!(event, HmiEvent::Startup);
+    }
+
+    #[test]
+    fn reject_terminated_startup_frame() {
+        let result = parse_frame(&[0x91, 0xFF, 0xFF, 0xFF]);
+
+        assert!(result.is_err());
     }
 
     #[test]

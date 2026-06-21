@@ -1,4 +1,4 @@
-use crate::app::state::{AppState, ConnectionStatus, KlipperStatus, PrinterStatus};
+use crate::app::state::{AppState, ConnectionStatus, KlipperStatus, Page, PrinterStatus};
 use crate::moonraker::event::{
     HeaterKind, KlippyState as MoonrakerKlippyState, MoonrakerEvent,
     PrinterStatus as MoonrakerPrinterStatus,
@@ -104,6 +104,10 @@ fn apply_printer_status(state: &mut AppState, printer_status: MoonrakerPrinterSt
         MoonrakerPrinterStatus::Printing => {
             state.printer.status = PrinterStatus::Printing;
             state.printer.can_accept_commands = false;
+
+            if state.ui.current_page == Page::Home {
+                state.set_page(Page::Printing);
+            }
         }
 
         MoonrakerPrinterStatus::Paused => {
@@ -242,6 +246,31 @@ mod tests {
 
         assert_eq!(state.printer.status, PrinterStatus::Printing);
         assert!(!state.printer.can_accept_commands);
+    }
+
+    #[test]
+    fn printer_status_printing_from_home_switches_to_printing_page() {
+        let mut state = AppState::default();
+
+        reduce_moonraker_event(
+            &mut state,
+            MoonrakerEvent::printer_status(MoonrakerPrinterStatus::Printing),
+        );
+
+        assert_eq!(state.ui.current_page, Page::Printing);
+    }
+
+    #[test]
+    fn printer_status_printing_does_not_steal_non_home_page() {
+        let mut state = AppState::default();
+        state.set_page(Page::Files);
+
+        reduce_moonraker_event(
+            &mut state,
+            MoonrakerEvent::printer_status(MoonrakerPrinterStatus::Printing),
+        );
+
+        assert_eq!(state.ui.current_page, Page::Files);
     }
 
     #[test]

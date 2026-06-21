@@ -2,29 +2,37 @@ use anyhow::Result;
 
 use crate::app::event::AppEvent;
 use crate::app::reducers::moonraker::reduce_moonraker_event;
-use crate::app::state::{AppState, Page};
+use crate::app::state::{AppState, Page, PrinterStatus};
 use crate::hmi::command::HmiCommand;
 use crate::hmi::event::HmiEvent;
-use crate::hmi::transport::HmiTransport;
 use crate::moonraker::event::MoonrakerEvent;
 use crate::ui::action_handler::handle_action;
 use crate::ui::effect::{MoonrakerRequest, UiEffect};
 use crate::ui::render_diff::render_diff;
+use crate::ui::render_full::render_full;
 use crate::ui::route::resolve_touch;
 
-pub struct AppRunner<T: HmiTransport> {
+pub struct AppRunner {
     pub state: AppState,
-    pub transport: T,
+    pub hmi_commands: Vec<HmiCommand>,
     pub moonraker_requests: Vec<MoonrakerRequest>,
 }
 
-impl<T: HmiTransport> AppRunner<T> {
-    pub fn new(transport: T) -> Self {
+impl AppRunner {
+    pub fn new() -> Self {
         Self {
             state: AppState::default(),
-            transport,
+            hmi_commands: Vec::new(),
             moonraker_requests: Vec::new(),
         }
+    }
+
+    pub fn drain_hmi_commands(&mut self) -> Vec<HmiCommand> {
+        self.hmi_commands.drain(..).collect()
+    }
+
+    pub fn drain_moonraker_requests(&mut self) -> Vec<MoonrakerRequest> {
+        self.moonraker_requests.drain(..).collect()
     }
 
     pub fn handle_event(&mut self, event: AppEvent) -> Result<()> {
@@ -48,8 +56,7 @@ impl<T: HmiTransport> AppRunner<T> {
     fn handle_hmi_event(&mut self, event: HmiEvent) -> Result<()> {
         match event {
             HmiEvent::Startup => {
-                self.state.set_page(Page::Home);
-                self.execute_effect(UiEffect::hmi(HmiCommand::page(Page::Home.id())))?;
+                self.render_startup_page()?;
             }
 
             HmiEvent::Touch { page, component } => {
@@ -67,6 +74,25 @@ impl<T: HmiTransport> AppRunner<T> {
         Ok(())
     }
 
+    fn render_startup_page(&mut self) -> Result<()> {
+        let page = if is_print_active(self.state.printer.status) {
+            Page::Printing
+        } else {
+            Page::Home
+        };
+
+        self.state.set_page(page);
+        self.execute_effect(UiEffect::hmi(HmiCommand::page(page.id())))?;
+
+        if page == Page::Printing {
+            for command in render_full(&self.state) {
+                self.execute_effect(UiEffect::hmi(command))?;
+            }
+        }
+
+        Ok(())
+    }
+
     fn handle_moonraker_event(&mut self, event: MoonrakerEvent) -> Result<()> {
         let old_state = self.state.clone();
 
@@ -74,9 +100,7 @@ impl<T: HmiTransport> AppRunner<T> {
 
         let commands = render_diff(&old_state, &self.state);
 
-        for command in commands {
-            self.transport.send(&command)?;
-        }
+        self.hmi_commands.extend(commands);
 
         Ok(())
     }
@@ -84,7 +108,7 @@ impl<T: HmiTransport> AppRunner<T> {
     fn execute_effect(&mut self, effect: UiEffect) -> Result<()> {
         match effect {
             UiEffect::Hmi(command) => {
-                self.transport.send(&command)?;
+                self.hmi_commands.push(command);
             }
 
             UiEffect::Moonraker(request) => {
@@ -98,44 +122,81 @@ impl<T: HmiTransport> AppRunner<T> {
     }
 }
 
+fn is_print_active(status: PrinterStatus) -> bool {
+    matches!(status, PrinterStatus::Printing | PrinterStatus::Paused)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     use crate::app::state::ActiveOperation;
-    use crate::hmi::mock_transport::MockTransport;
     use crate::moonraker::event::KlippyState;
 
     #[test]
     fn startup_sends_home_page() {
-        let transport = MockTransport::new();
-        let mut runner = AppRunner::new(transport);
+        let mut runner = AppRunner::new();
 
         runner
             .handle_event(AppEvent::hmi(HmiEvent::Startup))
             .unwrap();
 
         assert_eq!(runner.state.ui.current_page, Page::Home);
-        assert_eq!(runner.transport.sent[0], b"page 0\xFF\xFF\xFF");
+        assert_eq!(runner.hmi_commands, vec![HmiCommand::page(Page::Home.id())]);
+    }
+
+    #[test]
+    fn startup_during_active_print_sends_print_page_and_full_render() {
+        let mut runner = AppRunner::new();
+
+        runner.state.printer.status = PrinterStatus::Printing;
+        runner.state.print.filename = Some("cube.gcode".to_string());
+        runner.state.print.progress_percent = 32;
+        runner.state.print.elapsed_seconds = 2 * 3600 + 41 * 60;
+        runner.state.print.remaining_seconds = Some(5 * 3600 + 44 * 60);
+        runner.state.set_nozzle_temperature(210.0, 220.0);
+        runner.state.set_bed_temperature(50.0, 60.0);
+
+        runner
+            .handle_event(AppEvent::hmi(HmiEvent::Startup))
+            .unwrap();
+
+        assert_eq!(runner.state.ui.current_page, Page::Printing);
+        assert_eq!(runner.hmi_commands.first(), Some(&HmiCommand::page(2)));
+        assert!(
+            runner
+                .hmi_commands
+                .contains(&HmiCommand::text("g0", "cube.gcode"))
+        );
+        assert!(runner.hmi_commands.contains(&HmiCommand::value("n6", 32)));
+        assert!(runner.hmi_commands.contains(&HmiCommand::value("n4", 2)));
+        assert!(runner.hmi_commands.contains(&HmiCommand::value("n5", 41)));
+        assert!(runner.hmi_commands.contains(&HmiCommand::value("n7", 5)));
+        assert!(runner.hmi_commands.contains(&HmiCommand::value("n8", 44)));
+        assert!(runner.hmi_commands.contains(&HmiCommand::value("n0", 210)));
+        assert!(runner.hmi_commands.contains(&HmiCommand::value("n1", 50)));
+        assert!(runner.hmi_commands.contains(&HmiCommand::text("t8", "220")));
+        assert!(runner.hmi_commands.contains(&HmiCommand::text("t9", "60")));
     }
 
     #[test]
     fn touch_home_component_1_goes_to_settings() {
-        let transport = MockTransport::new();
-        let mut runner = AppRunner::new(transport);
+        let mut runner = AppRunner::new();
 
         runner
             .handle_event(AppEvent::hmi(HmiEvent::touch(0, 1)))
             .unwrap();
 
         assert_eq!(runner.state.ui.current_page, Page::Settings);
-        assert_eq!(runner.transport.sent[0], b"page 11\xFF\xFF\xFF");
+        assert_eq!(
+            runner.hmi_commands,
+            vec![HmiCommand::page(Page::Settings.id())]
+        );
     }
 
     #[test]
     fn locked_navigation_blocks_page_change() {
-        let transport = MockTransport::new();
-        let mut runner = AppRunner::new(transport);
+        let mut runner = AppRunner::new();
 
         runner.state.lock_navigation(ActiveOperation::Calibration);
 
@@ -144,13 +205,12 @@ mod tests {
             .unwrap();
 
         assert_eq!(runner.state.ui.current_page, Page::Home);
-        assert!(runner.transport.sent.is_empty());
+        assert!(runner.hmi_commands.is_empty());
     }
 
     #[test]
     fn touch_calibration_home_all_axes_creates_moonraker_request() {
-        let transport = MockTransport::new();
-        let mut runner = AppRunner::new(transport);
+        let mut runner = AppRunner::new();
 
         runner
             .handle_event(AppEvent::hmi(HmiEvent::touch(33, 1)))
@@ -169,8 +229,7 @@ mod tests {
 
     #[test]
     fn touch_print_pause_creates_pause_request() {
-        let transport = MockTransport::new();
-        let mut runner = AppRunner::new(transport);
+        let mut runner = AppRunner::new();
 
         runner
             .handle_event(AppEvent::hmi(HmiEvent::touch(2, 1)))
@@ -184,8 +243,7 @@ mod tests {
 
     #[test]
     fn moonraker_temperature_event_updates_state_and_renders_home_diff() {
-        let transport = MockTransport::new();
-        let mut runner = AppRunner::new(transport);
+        let mut runner = AppRunner::new();
 
         runner.state.set_page(Page::Home);
 
@@ -201,20 +259,19 @@ mod tests {
         assert_eq!(runner.state.temperatures.bed.target, 60.0);
 
         assert_eq!(
-            runner.transport.sent,
+            runner.hmi_commands,
             vec![
-                b"n0.val=215\xFF\xFF\xFF".to_vec(),
-                b"n1.val=220\xFF\xFF\xFF".to_vec(),
-                b"n4.val=60\xFF\xFF\xFF".to_vec(),
-                b"n5.val=60\xFF\xFF\xFF".to_vec(),
+                HmiCommand::value("n0", 215),
+                HmiCommand::value("n1", 220),
+                HmiCommand::value("n4", 60),
+                HmiCommand::value("n5", 60),
             ]
         );
     }
 
     #[test]
     fn moonraker_same_rounded_temperature_does_not_render_again() {
-        let transport = MockTransport::new();
-        let mut runner = AppRunner::new(transport);
+        let mut runner = AppRunner::new();
 
         runner.state.set_page(Page::Home);
 
@@ -224,7 +281,7 @@ mod tests {
             )))
             .unwrap();
 
-        runner.transport.sent.clear();
+        runner.hmi_commands.clear();
 
         runner
             .handle_event(AppEvent::moonraker(MoonrakerEvent::temperatures(
@@ -232,13 +289,12 @@ mod tests {
             )))
             .unwrap();
 
-        assert!(runner.transport.sent.is_empty());
+        assert!(runner.hmi_commands.is_empty());
     }
 
     #[test]
     fn moonraker_klippy_ready_updates_state_without_rendering() {
-        let transport = MockTransport::new();
-        let mut runner = AppRunner::new(transport);
+        let mut runner = AppRunner::new();
 
         runner
             .handle_event(AppEvent::moonraker(MoonrakerEvent::klippy_state(
@@ -247,6 +303,6 @@ mod tests {
             .unwrap();
 
         assert!(runner.state.printer.can_accept_commands);
-        assert!(runner.transport.sent.is_empty());
+        assert!(runner.hmi_commands.is_empty());
     }
 }

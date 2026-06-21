@@ -1,0 +1,20 @@
+[printer]
+host = "192.168.0.20"
+moonraker_port = 7125
+
+[hmi]
+serial = "/dev/ttyS1"
+baud = 115200
+
+[ui]
+startup_page = 0
+language = "ru"
+thumbnail_cache = "/var/cache/vaptechclient/thumbnails"
+
+[tx]
+chunk_size = 512
+chunk_delay_ms = 1
+queue_size = 512
+
+[log]
+level = "info"

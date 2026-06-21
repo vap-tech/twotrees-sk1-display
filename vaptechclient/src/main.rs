@@ -1,5 +1,7 @@
 mod config;
 mod hmi;
+mod app;
+mod ui;
 
 use anyhow::Result;
 use clap::Parser;

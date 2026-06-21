@@ -12,47 +12,20 @@ pub fn render_full(state: &AppState) -> Vec<HmiCommand> {
 
 fn render_home_full(state: &AppState) -> Vec<HmiCommand> {
     vec![
-        HmiCommand::value(
-            "n0",
-            round_temperature(state.temperatures.nozzle.current),
-        ),
-        HmiCommand::value(
-            "n1",
-            round_temperature(state.temperatures.nozzle.target),
-        ),
-        HmiCommand::value(
-            "n4",
-            round_temperature(state.temperatures.bed.current),
-        ),
-        HmiCommand::value(
-            "n5",
-            round_temperature(state.temperatures.bed.target),
-        ),
+        HmiCommand::value("n0", round_temperature(state.temperatures.nozzle.current)),
+        HmiCommand::value("n1", round_temperature(state.temperatures.nozzle.target)),
+        HmiCommand::value("n4", round_temperature(state.temperatures.bed.current)),
+        HmiCommand::value("n5", round_temperature(state.temperatures.bed.target)),
     ]
 }
 
 fn render_move_temp_full(state: &AppState) -> Vec<HmiCommand> {
     vec![
-        HmiCommand::value(
-            "n0",
-            round_temperature(state.temperatures.nozzle.current),
-        ),
-        HmiCommand::value(
-            "n1",
-            round_temperature(state.temperatures.nozzle.target),
-        ),
-        HmiCommand::value(
-            "n4",
-            round_temperature(state.temperatures.bed.current),
-        ),
-        HmiCommand::value(
-            "n5",
-            round_temperature(state.temperatures.bed.target),
-        ),
-        HmiCommand::value(
-            "n3",
-            state.ui.move_distance.value_mm() as i32,
-        ),
+        HmiCommand::value("n0", round_temperature(state.temperatures.nozzle.current)),
+        HmiCommand::value("n1", round_temperature(state.temperatures.nozzle.target)),
+        HmiCommand::value("n4", round_temperature(state.temperatures.bed.current)),
+        HmiCommand::value("n5", round_temperature(state.temperatures.bed.target)),
+        HmiCommand::value("n3", state.ui.move_distance.value_mm() as i32),
     ]
 }
 

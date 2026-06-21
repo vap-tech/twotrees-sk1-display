@@ -5,26 +5,11 @@ pub const TERMINATOR: [u8; 3] = [0xFF, 0xFF, 0xFF];
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum HmiCommand {
     Page(u16),
-    Text {
-        component: String,
-        value: String,
-    },
-    Value {
-        component: String,
-        value: i32,
-    },
-    Picture {
-        component: String,
-        pic: u16,
-    },
-    PicturePressed {
-        component: String,
-        pic: u16,
-    },
-    Visible {
-        component: String,
-        visible: bool,
-    },
+    Text { component: String, value: String },
+    Value { component: String, value: i32 },
+    Picture { component: String, pic: u16 },
+    PicturePressed { component: String, pic: u16 },
+    Visible { component: String, visible: bool },
     Raw(String),
 }
 
@@ -99,9 +84,7 @@ impl HmiCommand {
                 format!("vis {},{}", component, value)
             }
 
-            Self::Raw(command) => {
-                command.clone()
-            }
+            Self::Raw(command) => command.clone(),
         }
     }
 

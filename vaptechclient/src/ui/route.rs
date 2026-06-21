@@ -69,18 +69,12 @@ mod tests {
 
     #[test]
     fn home_component_1_goes_to_settings() {
-        assert_eq!(
-            resolve_touch(0, 1),
-            UiAction::ChangePage(Page::Settings)
-        );
+        assert_eq!(resolve_touch(0, 1), UiAction::ChangePage(Page::Settings));
     }
 
     #[test]
     fn home_component_2_goes_to_files() {
-        assert_eq!(
-            resolve_touch(0, 2),
-            UiAction::ChangePage(Page::Files)
-        );
+        assert_eq!(resolve_touch(0, 2), UiAction::ChangePage(Page::Files));
     }
 
     #[test]

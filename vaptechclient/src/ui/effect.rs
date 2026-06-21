@@ -49,9 +49,7 @@ mod tests {
     fn gcode_effect_constructor() {
         assert_eq!(
             UiEffect::gcode("G28"),
-            UiEffect::Moonraker(MoonrakerRequest::SendGcode(
-                "G28".to_string()
-            ))
+            UiEffect::Moonraker(MoonrakerRequest::SendGcode("G28".to_string()))
         );
     }
 

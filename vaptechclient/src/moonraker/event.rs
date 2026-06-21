@@ -15,10 +15,10 @@ pub enum MoonrakerEvent {
     },
 
     PrintProgress {
-        filename: String,
-        progress: f32,
-        print_duration: f32,
-        total_duration: f32,
+        filename: Option<String>,
+        progress_percent: Option<u8>,
+        elapsed_seconds: Option<u32>,
+        remaining_seconds: Option<u32>,
     },
 
     HeaterUpdate {
@@ -134,18 +134,12 @@ mod tests {
 
     #[test]
     fn connected_constructor() {
-        assert_eq!(
-            MoonrakerEvent::connected(),
-            MoonrakerEvent::Connected
-        );
+        assert_eq!(MoonrakerEvent::connected(), MoonrakerEvent::Connected);
     }
 
     #[test]
     fn disconnected_constructor() {
-        assert_eq!(
-            MoonrakerEvent::disconnected(),
-            MoonrakerEvent::Disconnected
-        );
+        assert_eq!(MoonrakerEvent::disconnected(), MoonrakerEvent::Disconnected);
     }
 
     #[test]
@@ -195,18 +189,12 @@ mod tests {
 
     #[test]
     fn klippy_state_from_moonraker_ready() {
-        assert_eq!(
-            KlippyState::from_moonraker("ready"),
-            KlippyState::Ready
-        );
+        assert_eq!(KlippyState::from_moonraker("ready"), KlippyState::Ready);
     }
 
     #[test]
     fn klippy_state_from_moonraker_busy() {
-        assert_eq!(
-            KlippyState::from_moonraker("busy"),
-            KlippyState::Busy
-        );
+        assert_eq!(KlippyState::from_moonraker("busy"), KlippyState::Busy);
     }
 
     #[test]
@@ -253,8 +241,6 @@ mod tests {
     fn debug_output_contains_variant_name() {
         let event = MoonrakerEvent::connected();
 
-        assert!(
-            format!("{:?}", event).contains("Connected")
-        );
+        assert!(format!("{:?}", event).contains("Connected"));
     }
 }

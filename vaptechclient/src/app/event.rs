@@ -35,10 +35,7 @@ mod tests {
     fn hmi_event_constructor() {
         let hmi_event = HmiEvent::touch(33, 7);
 
-        assert_eq!(
-            AppEvent::hmi(hmi_event.clone()),
-            AppEvent::Hmi(hmi_event)
-        );
+        assert_eq!(AppEvent::hmi(hmi_event.clone()), AppEvent::Hmi(hmi_event));
     }
 
     #[test]

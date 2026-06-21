@@ -1,14 +1,9 @@
-use crate::app::state::{
-    ActiveOperation, AppState, FanKind, MoveDistance, Page,
-};
+use crate::app::state::{ActiveOperation, AppState, FanKind, MoveDistance, Page};
 use crate::hmi::command::HmiCommand;
 use crate::ui::effect::{MoonrakerRequest, UiEffect};
 use crate::ui::route::UiAction;
 
-pub fn handle_action(
-    state: &mut AppState,
-    action: UiAction,
-) -> Vec<UiEffect> {
+pub fn handle_action(state: &mut AppState, action: UiAction) -> Vec<UiEffect> {
     match action {
         UiAction::ChangePage(page) => handle_change_page(state, page),
 
@@ -88,10 +83,7 @@ pub fn handle_action(
     }
 }
 
-fn handle_change_page(
-    state: &mut AppState,
-    page: Page,
-) -> Vec<UiEffect> {
+fn handle_change_page(state: &mut AppState, page: Page) -> Vec<UiEffect> {
     if !state.request_page(page) {
         return Vec::new();
     }
@@ -119,10 +111,7 @@ mod tests {
     fn change_page_updates_state_and_returns_hmi_effect() {
         let mut state = AppState::default();
 
-        let effects = handle_action(
-            &mut state,
-            UiAction::ChangePage(Page::Settings),
-        );
+        let effects = handle_action(&mut state, UiAction::ChangePage(Page::Settings));
 
         assert_eq!(state.ui.current_page, Page::Settings);
         assert_eq!(
@@ -137,10 +126,7 @@ mod tests {
 
         state.lock_navigation(ActiveOperation::Calibration);
 
-        let effects = handle_action(
-            &mut state,
-            UiAction::ChangePage(Page::Settings),
-        );
+        let effects = handle_action(&mut state, UiAction::ChangePage(Page::Settings));
 
         assert_eq!(state.ui.current_page, Page::Home);
         assert!(effects.is_empty());
@@ -238,10 +224,7 @@ mod tests {
         let effects = handle_action(&mut state, UiAction::HomeAllAxes);
 
         assert!(state.ui.navigation_locked);
-        assert_eq!(
-            state.process.active_operation,
-            ActiveOperation::Homing
-        );
+        assert_eq!(state.process.active_operation, ActiveOperation::Homing);
         assert_eq!(effects, vec![UiEffect::gcode("G28")]);
     }
 

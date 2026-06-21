@@ -191,10 +191,7 @@ mod tests {
 
         runner
             .handle_event(AppEvent::moonraker(MoonrakerEvent::temperatures(
-                215.0,
-                220.0,
-                59.6,
-                60.0,
+                215.0, 220.0, 59.6, 60.0,
             )))
             .unwrap();
 
@@ -223,10 +220,7 @@ mod tests {
 
         runner
             .handle_event(AppEvent::moonraker(MoonrakerEvent::temperatures(
-                215.1,
-                220.0,
-                60.0,
-                60.0,
+                215.1, 220.0, 60.0, 60.0,
             )))
             .unwrap();
 
@@ -234,10 +228,7 @@ mod tests {
 
         runner
             .handle_event(AppEvent::moonraker(MoonrakerEvent::temperatures(
-                215.4,
-                220.0,
-                60.0,
-                60.0,
+                215.4, 220.0, 60.0, 60.0,
             )))
             .unwrap();
 

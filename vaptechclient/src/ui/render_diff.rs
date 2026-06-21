@@ -4,9 +4,7 @@ use crate::ui::render_full::render_full;
 
 pub fn render_diff(old: &AppState, new: &AppState) -> Vec<HmiCommand> {
     if old.ui.current_page != new.ui.current_page {
-        let mut commands = vec![
-            HmiCommand::page(new.ui.current_page.id()),
-        ];
+        let mut commands = vec![HmiCommand::page(new.ui.current_page.id())];
 
         commands.extend(render_full(new));
         return commands;
@@ -14,6 +12,7 @@ pub fn render_diff(old: &AppState, new: &AppState) -> Vec<HmiCommand> {
 
     match new.ui.current_page {
         Page::Home => render_home_diff(old, new),
+        Page::Print | Page::Printing => render_print_diff(old, new),
         Page::MoveTemp => render_move_temp_diff(old, new),
         _ => Vec::new(),
     }
@@ -34,6 +33,47 @@ fn render_move_temp_diff(old: &AppState, new: &AppState) -> Vec<HmiCommand> {
     }
 
     commands
+}
+
+fn render_print_diff(old: &AppState, new: &AppState) -> Vec<HmiCommand> {
+    let mut commands = render_temperature_diff(old, new);
+
+    if old.print.progress_percent != new.print.progress_percent {
+        commands.push(HmiCommand::value("n6", new.print.progress_percent as i32));
+    }
+
+    push_elapsed_time_diff(&mut commands, old, new);
+    push_remaining_time_diff(&mut commands, old, new);
+
+    commands
+}
+
+fn push_elapsed_time_diff(commands: &mut Vec<HmiCommand>, old: &AppState, new: &AppState) {
+    let old_minutes = old.print.elapsed_seconds / 60;
+    let new_minutes = new.print.elapsed_seconds / 60;
+
+    if old_minutes == new_minutes {
+        return;
+    }
+
+    commands.push(HmiCommand::value("n4", (new_minutes / 60) as i32));
+    commands.push(HmiCommand::value("n5", (new_minutes % 60) as i32));
+}
+
+fn push_remaining_time_diff(commands: &mut Vec<HmiCommand>, old: &AppState, new: &AppState) {
+    let old_minutes = old.print.remaining_seconds.map(|v| v / 60);
+    let new_minutes = new.print.remaining_seconds.map(|v| v / 60);
+
+    if old_minutes == new_minutes {
+        return;
+    }
+
+    let Some(minutes) = new_minutes else {
+        return;
+    };
+
+    commands.push(HmiCommand::value("n7", (minutes / 60) as i32));
+    commands.push(HmiCommand::value("n8", (minutes % 60) as i32));
 }
 
 fn render_temperature_diff(old: &AppState, new: &AppState) -> Vec<HmiCommand> {
@@ -138,10 +178,7 @@ mod tests {
 
         let commands = render_diff(&old, &new);
 
-        assert_eq!(
-            commands,
-            vec![HmiCommand::value("n0", 216)]
-        );
+        assert_eq!(commands, vec![HmiCommand::value("n0", 216)]);
     }
 
     #[test]
@@ -169,10 +206,7 @@ mod tests {
 
         let commands = render_diff(&old, &new);
 
-        assert_eq!(
-            commands,
-            vec![HmiCommand::value("n0", 216)]
-        );
+        assert_eq!(commands, vec![HmiCommand::value("n0", 216)]);
     }
 
     #[test]
@@ -186,9 +220,68 @@ mod tests {
 
         let commands = render_diff(&old, &new);
 
+        assert_eq!(commands, vec![HmiCommand::value("n3", 30)]);
+    }
+
+    #[test]
+    fn same_print_page_progress_change_is_rendered() {
+        let mut old = AppState::default();
+        old.set_page(Page::Printing);
+        old.print.progress_percent = 10;
+
+        let mut new = old.clone();
+        new.print.progress_percent = 11;
+
+        let commands = render_diff(&old, &new);
+
+        assert_eq!(commands, vec![HmiCommand::value("n6", 11)]);
+    }
+
+    #[test]
+    fn same_print_page_elapsed_minute_change_is_rendered_as_hours_and_minutes() {
+        let mut old = AppState::default();
+        old.set_page(Page::Printing);
+        old.print.elapsed_seconds = 14 * 60 + 59;
+
+        let mut new = old.clone();
+        new.print.elapsed_seconds = 15 * 60;
+
+        let commands = render_diff(&old, &new);
+
         assert_eq!(
             commands,
-            vec![HmiCommand::value("n3", 30)]
+            vec![HmiCommand::value("n4", 0), HmiCommand::value("n5", 15),]
+        );
+    }
+
+    #[test]
+    fn same_print_page_elapsed_seconds_inside_same_minute_are_not_rendered() {
+        let mut old = AppState::default();
+        old.set_page(Page::Printing);
+        old.print.elapsed_seconds = 15 * 60 + 1;
+
+        let mut new = old.clone();
+        new.print.elapsed_seconds = 15 * 60 + 59;
+
+        let commands = render_diff(&old, &new);
+
+        assert!(commands.is_empty());
+    }
+
+    #[test]
+    fn same_print_page_remaining_minute_change_is_rendered_as_hours_and_minutes() {
+        let mut old = AppState::default();
+        old.set_page(Page::Printing);
+        old.print.remaining_seconds = Some(2 * 3600 + 41 * 60 + 59);
+
+        let mut new = old.clone();
+        new.print.remaining_seconds = Some(2 * 3600 + 42 * 60);
+
+        let commands = render_diff(&old, &new);
+
+        assert_eq!(
+            commands,
+            vec![HmiCommand::value("n7", 2), HmiCommand::value("n8", 42),]
         );
     }
 

@@ -6,6 +6,7 @@ pub struct AppState {
     pub fans: FanState,
     pub ui: UiState,
     pub process: ProcessState,
+    pub print: PrintState,
 }
 
 impl Default for AppState {
@@ -17,6 +18,7 @@ impl Default for AppState {
             fans: FanState::default(),
             ui: UiState::default(),
             process: ProcessState::default(),
+            print: PrintState::default(),
         }
     }
 }
@@ -168,6 +170,7 @@ impl Default for UiState {
 pub enum Page {
     Home,
     Print,
+    Printing,
     Files,
     Settings,
     MoveTemp,
@@ -183,6 +186,7 @@ impl Page {
         match self {
             Self::Home => 0,
             Self::Print => 2,
+            Self::Printing => 2,
             Self::MoveTemp => 3,
             Self::LoadUnload => 4,
             Self::Files => 54,
@@ -307,6 +311,25 @@ pub enum FanKind {
     Filter,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct PrintState {
+    pub filename: Option<String>,
+    pub progress_percent: u8,
+    pub elapsed_seconds: u32,
+    pub remaining_seconds: Option<u32>,
+}
+
+impl Default for PrintState {
+    fn default() -> Self {
+        Self {
+            filename: None,
+            progress_percent: 0,
+            elapsed_seconds: 0,
+            remaining_seconds: None,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -326,6 +349,7 @@ mod tests {
     fn page_has_numeric_id() {
         assert_eq!(Page::Home.id(), 0);
         assert_eq!(Page::Print.id(), 2);
+        assert_eq!(Page::Printing.id(), 2);
         assert_eq!(Page::Calibration.id(), 33);
         assert_eq!(Page::Unknown(77).id(), 77);
     }

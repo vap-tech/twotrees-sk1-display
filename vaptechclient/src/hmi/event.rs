@@ -4,10 +4,7 @@ pub enum HmiEvent {
     Startup,
 
     /// Touch event from display.
-    Touch {
-        page: u8,
-        component: u8,
-    },
+    Touch { page: u8, component: u8 },
 
     /// Numeric response, usually from `get ...`.
     Numeric(u32),
@@ -69,10 +66,7 @@ mod tests {
 
     #[test]
     fn text_constructor() {
-        assert_eq!(
-            HmiEvent::text("hello"),
-            HmiEvent::Text("hello".to_string())
-        );
+        assert_eq!(HmiEvent::text("hello"), HmiEvent::Text("hello".to_string()));
     }
 
     #[test]

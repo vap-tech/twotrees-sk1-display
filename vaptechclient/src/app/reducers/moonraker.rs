@@ -1,10 +1,6 @@
-use crate::app::state::{
-    AppState, ConnectionStatus, KlipperStatus, PrinterStatus,
-};
+use crate::app::state::{AppState, ConnectionStatus, KlipperStatus, PrinterStatus};
 use crate::moonraker::event::{
-    HeaterKind,
-    KlippyState as MoonrakerKlippyState,
-    MoonrakerEvent,
+    HeaterKind, KlippyState as MoonrakerKlippyState, MoonrakerEvent,
     PrinterStatus as MoonrakerPrinterStatus,
 };
 
@@ -46,8 +42,22 @@ pub fn reduce_moonraker_event(state: &mut AppState, event: MoonrakerEvent) {
             apply_heater_update(state, heater, current, target);
         }
 
-        MoonrakerEvent::PrintProgress { .. }
-        | MoonrakerEvent::FileListChanged
+        MoonrakerEvent::PrintProgress {
+            filename,
+            progress_percent,
+            elapsed_seconds,
+            remaining_seconds,
+        } => {
+            apply_print_progress(
+                state,
+                filename,
+                progress_percent,
+                elapsed_seconds,
+                remaining_seconds,
+            );
+        }
+
+        MoonrakerEvent::FileListChanged
         | MoonrakerEvent::GcodeResponse(_)
         | MoonrakerEvent::Error(_)
         | MoonrakerEvent::Unknown => {}
@@ -84,10 +94,7 @@ fn apply_klippy_state(state: &mut AppState, klippy_state: MoonrakerKlippyState) 
     }
 }
 
-fn apply_printer_status(
-    state: &mut AppState,
-    printer_status: MoonrakerPrinterStatus,
-) {
+fn apply_printer_status(state: &mut AppState, printer_status: MoonrakerPrinterStatus) {
     match printer_status {
         MoonrakerPrinterStatus::Standby => {
             state.printer.status = PrinterStatus::Standby;
@@ -143,6 +150,30 @@ fn apply_heater_update(
 
     if let Some(value) = target {
         target_heater.target = value;
+    }
+}
+
+fn apply_print_progress(
+    state: &mut AppState,
+    filename: Option<String>,
+    progress_percent: Option<u8>,
+    elapsed_seconds: Option<u32>,
+    remaining_seconds: Option<u32>,
+) {
+    if let Some(value) = filename {
+        state.print.filename = Some(value);
+    }
+
+    if let Some(value) = progress_percent {
+        state.print.progress_percent = value.min(100);
+    }
+
+    if let Some(value) = elapsed_seconds {
+        state.print.elapsed_seconds = value;
+    }
+
+    if let Some(value) = remaining_seconds {
+        state.print.remaining_seconds = Some(value);
     }
 }
 
@@ -277,5 +308,67 @@ mod tests {
 
         assert_eq!(state.temperatures.bed.current, 50.0);
         assert_eq!(state.temperatures.bed.target, 60.0);
+    }
+
+    #[test]
+    fn print_progress_updates_all_fields() {
+        let mut state = AppState::default();
+
+        reduce_moonraker_event(
+            &mut state,
+            MoonrakerEvent::PrintProgress {
+                filename: Some("cube.gcode".to_string()),
+                progress_percent: Some(42),
+                elapsed_seconds: Some(120),
+                remaining_seconds: Some(300),
+            },
+        );
+
+        assert_eq!(state.print.filename, Some("cube.gcode".to_string()));
+        assert_eq!(state.print.progress_percent, 42);
+        assert_eq!(state.print.elapsed_seconds, 120);
+        assert_eq!(state.print.remaining_seconds, Some(300));
+    }
+
+    #[test]
+    fn print_progress_partial_update_preserves_old_values() {
+        let mut state = AppState::default();
+
+        state.print.filename = Some("cube.gcode".to_string());
+        state.print.progress_percent = 40;
+        state.print.elapsed_seconds = 100;
+        state.print.remaining_seconds = Some(500);
+
+        reduce_moonraker_event(
+            &mut state,
+            MoonrakerEvent::PrintProgress {
+                filename: None,
+                progress_percent: Some(41),
+                elapsed_seconds: None,
+                remaining_seconds: None,
+            },
+        );
+
+        assert_eq!(state.print.filename, Some("cube.gcode".to_string()));
+        assert_eq!(state.print.progress_percent, 41);
+        assert_eq!(state.print.elapsed_seconds, 100);
+        assert_eq!(state.print.remaining_seconds, Some(500));
+    }
+
+    #[test]
+    fn print_progress_percent_is_clamped_to_100() {
+        let mut state = AppState::default();
+
+        reduce_moonraker_event(
+            &mut state,
+            MoonrakerEvent::PrintProgress {
+                filename: None,
+                progress_percent: Some(150),
+                elapsed_seconds: None,
+                remaining_seconds: None,
+            },
+        );
+
+        assert_eq!(state.print.progress_percent, 100);
     }
 }

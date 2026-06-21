@@ -1,4 +1,4 @@
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 
 pub const TERMINATOR: [u8; 3] = [0xFF, 0xFF, 0xFF];
 
@@ -93,10 +93,7 @@ mod tests {
 
     #[test]
     fn strips_terminator() {
-        let payload = payload_without_terminator(
-            b"\x65\x21\x07\xFF\xFF\xFF"
-        )
-        .unwrap();
+        let payload = payload_without_terminator(b"\x65\x21\x07\xFF\xFF\xFF").unwrap();
 
         assert_eq!(payload, b"\x65\x21\x07");
     }
@@ -113,10 +110,7 @@ mod tests {
 
         let frame = buffer.push_byte(0xFF);
 
-        assert_eq!(
-            frame,
-            Some(vec![0x65, 0x21, 0x07, 0xFF, 0xFF, 0xFF])
-        );
+        assert_eq!(frame, Some(vec![0x65, 0x21, 0x07, 0xFF, 0xFF, 0xFF]));
         assert!(buffer.is_empty());
     }
 
@@ -124,10 +118,7 @@ mod tests {
     fn frame_buffer_splits_multiple_frames() {
         let mut buffer = FrameBuffer::new();
 
-        let frames = buffer.push_bytes(&[
-            0x91, 0xFF, 0xFF, 0xFF,
-            0x65, 33, 7, 0xFF, 0xFF, 0xFF,
-        ]);
+        let frames = buffer.push_bytes(&[0x91, 0xFF, 0xFF, 0xFF, 0x65, 33, 7, 0xFF, 0xFF, 0xFF]);
 
         assert_eq!(
             frames,

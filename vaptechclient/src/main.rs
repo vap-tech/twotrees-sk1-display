@@ -1,8 +1,8 @@
+mod app;
 mod config;
 mod hmi;
-mod app;
-mod ui;
 mod moonraker;
+mod ui;
 
 use anyhow::Result;
 use clap::Parser;

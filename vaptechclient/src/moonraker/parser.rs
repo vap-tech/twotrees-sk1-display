@@ -1,13 +1,10 @@
 use anyhow::{Context, Result};
 use serde_json::Value;
 
-use crate::moonraker::event::{
-    HeaterKind, KlippyState, MoonrakerEvent, PrinterStatus,
-};
+use crate::moonraker::event::{HeaterKind, KlippyState, MoonrakerEvent, PrinterStatus};
 
 pub fn parse_moonraker_message(raw: &str) -> Result<Vec<MoonrakerEvent>> {
-    let json: Value = serde_json::from_str(raw)
-        .context("failed to parse moonraker json")?;
+    let json: Value = serde_json::from_str(raw).context("failed to parse moonraker json")?;
 
     let mut events = Vec::new();
 
@@ -28,9 +25,9 @@ pub fn parse_moonraker_message(raw: &str) -> Result<Vec<MoonrakerEvent>> {
 
 fn parse_result(result: &Value, events: &mut Vec<MoonrakerEvent>) {
     if let Some(state) = result.get("klippy_state").and_then(Value::as_str) {
-        events.push(MoonrakerEvent::klippy_state(
-            KlippyState::from_moonraker(state),
-        ));
+        events.push(MoonrakerEvent::klippy_state(KlippyState::from_moonraker(
+            state,
+        )));
     }
 
     if let Some(status) = result.get("status") {
@@ -55,14 +52,10 @@ fn parse_status_object(status: &Value, events: &mut Vec<MoonrakerEvent>) {
     parse_heater(status, "extruder", HeaterKind::Nozzle, events);
     parse_heater(status, "heater_bed", HeaterKind::Bed, events);
     parse_print_stats(status, events);
+    parse_print_progress(status, events);
 }
 
-fn parse_heater(
-    status: &Value,
-    key: &str,
-    heater: HeaterKind,
-    events: &mut Vec<MoonrakerEvent>,
-) {
+fn parse_heater(status: &Value, key: &str, heater: HeaterKind, events: &mut Vec<MoonrakerEvent>) {
     let Some(obj) = status.get(key) else {
         return;
     };
@@ -72,10 +65,7 @@ fn parse_heater(
         .and_then(Value::as_f64)
         .map(|v| v as f32);
 
-    let target = obj
-        .get("target")
-        .and_then(Value::as_f64)
-        .map(|v| v as f32);
+    let target = obj.get("target").and_then(Value::as_f64).map(|v| v as f32);
 
     if current.is_some() || target.is_some() {
         events.push(MoonrakerEvent::HeaterUpdate {
@@ -96,6 +86,75 @@ fn parse_print_stats(status: &Value, events: &mut Vec<MoonrakerEvent>) {
             PrinterStatus::from_print_stats(state),
         ));
     }
+}
+
+fn parse_print_progress(status: &Value, events: &mut Vec<MoonrakerEvent>) {
+    let filename = status
+        .get("print_stats")
+        .and_then(|v| v.get("filename"))
+        .and_then(Value::as_str)
+        .filter(|v| !v.is_empty())
+        .map(String::from);
+
+    let elapsed_seconds = status
+        .get("print_stats")
+        .and_then(|v| v.get("print_duration"))
+        .and_then(Value::as_f64)
+        .map(|v| v.round() as u32);
+
+    let progress_ratio = status
+        .get("virtual_sdcard")
+        .and_then(|v| v.get("progress"))
+        .and_then(Value::as_f64)
+        .or_else(|| {
+            status
+                .get("display_status")
+                .and_then(|v| v.get("progress"))
+                .and_then(Value::as_f64)
+        });
+
+    let progress_percent = progress_ratio.map(progress_ratio_to_percent);
+
+    let remaining_seconds = match (elapsed_seconds, progress_ratio) {
+        (Some(elapsed), Some(progress)) => estimate_remaining_seconds(elapsed, progress),
+        _ => None,
+    };
+
+    if filename.is_some()
+        || progress_percent.is_some()
+        || elapsed_seconds.is_some()
+        || remaining_seconds.is_some()
+    {
+        events.push(MoonrakerEvent::PrintProgress {
+            filename,
+            progress_percent,
+            elapsed_seconds,
+            remaining_seconds,
+        });
+    }
+}
+
+fn progress_ratio_to_percent(progress: f64) -> u8 {
+    let percent = (progress * 100.0).round();
+
+    if percent < 0.0 {
+        0
+    } else if percent > 100.0 {
+        100
+    } else {
+        percent as u8
+    }
+}
+
+fn estimate_remaining_seconds(elapsed_seconds: u32, progress: f64) -> Option<u32> {
+    if progress <= 0.0 || progress >= 1.0 {
+        return None;
+    }
+
+    let total_estimated = elapsed_seconds as f64 / progress;
+    let remaining = total_estimated - elapsed_seconds as f64;
+
+    Some(remaining.max(0.0).round() as u32)
 }
 
 fn parse_gcode_response(json: &Value, events: &mut Vec<MoonrakerEvent>) {
@@ -172,6 +231,12 @@ mod tests {
                     target: Some(50.0),
                 },
                 MoonrakerEvent::printer_status(PrinterStatus::Printing),
+                MoonrakerEvent::PrintProgress {
+                    filename: Some("Single Drawer_PLA_8h47m.gcode".to_string()),
+                    progress_percent: None,
+                    elapsed_seconds: None,
+                    remaining_seconds: None,
+                },
             ]
         );
     }
@@ -268,7 +333,7 @@ mod tests {
     }
 
     #[test]
-    fn ignores_print_stats_duration_only_update() {
+    fn parses_print_stats_duration_only_update_as_elapsed_time() {
         let raw = r#"{
             "method": "notify_status_update",
             "params": [
@@ -283,7 +348,15 @@ mod tests {
 
         let events = parse_moonraker_message(raw).unwrap();
 
-        assert!(events.is_empty());
+        assert_eq!(
+            events,
+            vec![MoonrakerEvent::PrintProgress {
+                filename: None,
+                progress_percent: None,
+                elapsed_seconds: Some(9707),
+                remaining_seconds: None,
+            }]
+        );
     }
 
     #[test]

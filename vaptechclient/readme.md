@@ -16,3 +16,4 @@ Thumbnail task -> AppEvent::ThumbnailReady(...)
                  ↓
 
               commands
+То есть задумывал прям backend-like архитектуру: producer → event bus → reducer/state → side effects.

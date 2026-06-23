@@ -9,6 +9,7 @@ use vaptechclient::hmi::event::HmiEvent;
 use vaptechclient::hmi::serial_service::HmiSerialService;
 use vaptechclient::moonraker::client::MoonrakerClient;
 use vaptechclient::runtime::Runtime;
+use vaptechclient::thumbnail::resolver::ThumbnailResolverConfig;
 use vaptechclient::thumbnail::worker::ThumbnailWorker;
 
 // Точка входа пока намеренно тонкая: поднимаем внешние сервисы и
@@ -74,7 +75,11 @@ async fn main() -> Result<()> {
         }
     });
 
-    let thumbnail_worker = ThumbnailWorker::new(thumbnail_request_rx, thumbnail_result_tx);
+    let thumbnail_worker = ThumbnailWorker::new(thumbnail_request_rx, thumbnail_result_tx)
+        .with_resolver_config(ThumbnailResolverConfig::new(
+            config.moonraker_http_url(),
+            config.ui.thumbnail_cache.clone(),
+        ));
 
     tokio::spawn(async move {
         if let Err(error) = thumbnail_worker.run().await {

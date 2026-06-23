@@ -8,7 +8,10 @@ pub const DEFAULT_CHUNK_SIZE: usize = 1024;
 
 const HEADER_SIZE: usize = 32;
 const COLORS_MAX: usize = 1024;
-const BACKGROUND_RGB: (u8, u8, u8) = (0x29, 0x35, 0x4a);
+// Vendor gene4.py отправляет в libColPic уже RGB-картинку. Прозрачные области
+// штатно выглядят чёрными, поэтому alpha здесь композитим в black, а не в цвет
+// страницы. Иначе вокруг Orca thumbnails появляется голубоватая подложка.
+const BACKGROUND_RGB: (u8, u8, u8) = (0x00, 0x00, 0x00);
 const COLPIC_MAGIC: u32 = 98_419_516;
 
 #[derive(Debug, Clone, Copy)]

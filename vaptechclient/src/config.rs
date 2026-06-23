@@ -104,7 +104,7 @@ fn default_language() -> String {
 }
 
 fn default_thumbnail_cache() -> PathBuf {
-    PathBuf::from("/var/cache/vaptechclient/thumbnails")
+    PathBuf::from("/tmp/vaptechclient/thumbnails")
 }
 
 fn default_chunk_size() -> usize {

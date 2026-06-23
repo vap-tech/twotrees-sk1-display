@@ -156,7 +156,11 @@ impl AppRunner {
 
         self.thumbnail_requests.push(ThumbnailRequest::Prepare {
             key,
-            source: ThumbnailSource::GcodeFile(filename),
+            source: ThumbnailSource::MoonrakerFile {
+                path: filename,
+                modified: None,
+                size: None,
+            },
         });
     }
 }

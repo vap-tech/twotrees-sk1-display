@@ -9,7 +9,7 @@ baud = 115200
 [ui]
 startup_page = 0
 language = "ru"
-thumbnail_cache = "/var/cache/vaptechclient/thumbnails"
+thumbnail_cache = "/tmp/vaptechclient/thumbnails"
 
 [tx]
 chunk_size = 512

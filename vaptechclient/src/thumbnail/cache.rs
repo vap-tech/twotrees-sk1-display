@@ -81,6 +81,8 @@ mod tests {
         let mut cache = ThumbnailCache::new();
         let key = ThumbnailKey {
             file_path: "cube.gcode".to_string(),
+            file_modified: None,
+            file_size: None,
             target: ThumbnailTarget::PrintPage,
             width: 155,
             height: 155,

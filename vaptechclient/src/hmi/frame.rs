@@ -2,6 +2,8 @@ use anyhow::{Result, bail};
 
 pub const TERMINATOR: [u8; 3] = [0xFF, 0xFF, 0xFF];
 
+// Большинство ответов TJC/HMI завершается FF FF FF. Исключение - стартовый
+// сигнал дисплея 0x91: он приходит одиночным байтом без терминатора.
 pub fn has_terminator(bytes: &[u8]) -> bool {
     bytes.ends_with(&TERMINATOR)
 }
@@ -35,6 +37,9 @@ impl FrameBuffer {
     }
 
     pub fn push_byte(&mut self, byte: u8) -> Option<Vec<u8>> {
+        // На живом дисплее перед init иногда прилетает 00. Считаем 0x91
+        // startup'ом только если в буфере пусто или лежит такой нулевой шум.
+        // Если 0x91 встретился внутри numeric/raw кадра, он остается payload.
         if byte == 0x91 && self.buffer.iter().all(|&pending| pending == 0x00) {
             self.buffer.clear();
             return Some(vec![0x91]);

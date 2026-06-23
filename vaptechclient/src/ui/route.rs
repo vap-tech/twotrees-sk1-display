@@ -1,5 +1,9 @@
 use crate::app::state::Page;
 
+/// Семантическое действие UI.
+///
+/// Сырые HMI touch frames содержат только page/component. В остальном коде
+/// работаем с понятными действиями, чтобы не размазывать магические id.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum UiAction {
     ChangePage(Page),
@@ -27,7 +31,7 @@ pub enum UiAction {
 
 pub fn resolve_touch(page: u8, component: u8) -> UiAction {
     match (page, component) {
-        // Home page
+        // Home page. Номера компонентов взяты из снифов штатного дисплея.
         (0, 1) => UiAction::ChangePage(Page::Settings),
         (0, 2) => UiAction::ChangePage(Page::Files),
         (0, 3) => UiAction::ChangePage(Page::MoveTemp),
@@ -48,7 +52,7 @@ pub fn resolve_touch(page: u8, component: u8) -> UiAction {
         (2, 1) => UiAction::PausePrint,
         (2, 2) => UiAction::StopPrint,
 
-        // Fallback
+        // Неизвестные touch не теряем: их видно в логах и можно дописать позже.
         _ => UiAction::UnknownTouch { page, component },
     }
 }

@@ -3,7 +3,13 @@ use crate::hmi::command::HmiCommand;
 use crate::ui::effect::{MoonrakerRequest, UiEffect};
 use crate::ui::route::UiAction;
 
+/// Выполняет уже распознанное UI-действие.
+///
+/// На входе нет сырых page/component: route.rs уже превратил их в UiAction.
+/// На выходе только эффекты, которые runtime потом доставит в HMI/Moonraker.
 pub fn handle_action(state: &mut AppState, action: UiAction) -> Vec<UiEffect> {
+    // Safety guard стоит здесь, а не в route: одно и то же действие может прийти
+    // с разных страниц, но правила безопасности зависят от состояния принтера.
     if action_is_blocked_by_printer_state(state, &action) {
         tracing::debug!(
             ?action,
@@ -101,6 +107,8 @@ fn action_is_blocked_by_printer_state(state: &AppState, action: &UiAction) -> bo
 }
 
 fn is_printing_blocked_action(action: &UiAction) -> bool {
+    // Во время печати запрещаем все, что может двигать механику или запускать
+    // загрузку/выгрузку пластика. Настройки и файлы смотреть можно.
     matches!(
         action,
         UiAction::ChangePage(Page::Calibration | Page::MoveTemp | Page::LoadUnload)
@@ -111,6 +119,7 @@ fn is_printing_blocked_action(action: &UiAction) -> bool {
 }
 
 fn is_paused_blocked_action(action: &UiAction) -> bool {
+    // На паузе load/unload допустим, но homing/move/calibration все еще опасны.
     matches!(
         action,
         UiAction::ChangePage(Page::Calibration | Page::MoveTemp) | UiAction::HomeAllAxes

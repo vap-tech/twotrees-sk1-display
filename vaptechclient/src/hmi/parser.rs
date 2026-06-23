@@ -3,6 +3,10 @@ use anyhow::{Result, bail};
 use crate::hmi::event::{HmiEvent, HmiStatus};
 use crate::hmi::frame::payload_without_terminator;
 
+/// Превращает сырой UART frame в событие приложения.
+///
+/// Важно: startup дисплея - только bare `0x91`. Вариант `91 ff ff ff`
+/// специально не принимается, потому что реальный дисплей так не шлет init.
 pub fn parse_frame(frame: &[u8]) -> Result<HmiEvent> {
     if frame == [0x91] {
         return Ok(HmiEvent::Startup);
@@ -38,6 +42,7 @@ fn parse_numeric(payload: &[u8]) -> Result<HmiEvent> {
         bail!("invalid numeric frame length: {}", payload.len());
     }
 
+    // Numeric ответы HMI приходят little-endian после кода 0x71.
     let value = u32::from_le_bytes([payload[1], payload[2], payload[3], payload[4]]);
 
     Ok(HmiEvent::numeric(value))

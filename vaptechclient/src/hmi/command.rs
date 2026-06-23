@@ -2,6 +2,10 @@ use std::fmt;
 
 pub const TERMINATOR: [u8; 3] = [0xFF, 0xFF, 0xFF];
 
+/// Команда, которую можно отправить в TJC/HMI дисплей.
+///
+/// Храним команды структурно, а ASCII-строку вида `n0.val=210` собираем только
+/// на границе транспорта. Так renderer можно тестировать без serial port.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum HmiCommand {
     Page(u16),
@@ -90,6 +94,7 @@ impl HmiCommand {
 
     pub fn to_bytes(&self) -> Vec<u8> {
         let mut bytes = self.to_ascii().into_bytes();
+        // Исходящие команды дисплею всегда завершаются FF FF FF.
         bytes.extend_from_slice(&TERMINATOR);
         bytes
     }

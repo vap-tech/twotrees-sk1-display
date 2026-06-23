@@ -1,6 +1,11 @@
 use crate::app::state::{AppState, Page, PrinterStatus};
 use crate::hmi::command::HmiCommand;
 
+/// Полная отрисовка текущей страницы.
+///
+/// Используется при первом входе на страницу и после init 0x91 от дисплея.
+/// Дисплей нормально принимает повторный `page N`, поэтому full render можно
+/// безопасно отправлять даже если визуально он уже на этой странице.
 pub fn render_full(state: &AppState) -> Vec<HmiCommand> {
     match state.ui.current_page {
         Page::Home => render_home_full(state),
@@ -37,6 +42,8 @@ fn render_print_full(state: &AppState) -> Vec<HmiCommand> {
     let filename = state.print.filename.as_deref().unwrap_or("");
 
     vec![
+        // Пока thumbnails не подключены, скрываем cp0 и рисуем только поля
+        // печати. Базовая wifi-иконка нужна, чтобы не оставался мусор с Home.
         HmiCommand::picture("Print_Trun_1.p0", 67),
         HmiCommand::text("g0", filename),
         HmiCommand::value("n0", round_temperature(state.temperatures.nozzle.current)),
@@ -69,6 +76,8 @@ fn round_temperature(value: f32) -> i32 {
 }
 
 fn print_pause_button_pics(status: PrinterStatus) -> (u16, u16) {
+    // У штатного HMI одна кнопка меняет смысл: во время печати это Pause,
+    // на паузе - Resume. Иконки задаются picc/picc2.
     if status == PrinterStatus::Paused {
         (5, 4)
     } else {

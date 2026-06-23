@@ -2,6 +2,9 @@ use anyhow::{Context, Result};
 use serde::Deserialize;
 use std::{fs, path::PathBuf};
 
+/// TOML-конфиг runtime.
+///
+/// RUST_LOG может переопределить log.level, а остальные поля берутся из файла.
 #[derive(Debug, Clone, Deserialize)]
 pub struct Config {
     pub printer: PrinterConfig,
@@ -53,12 +56,17 @@ pub struct TxConfig {
 pub struct LogConfig {
     #[serde(default = "default_log_level")]
     pub level: String,
+
+    #[serde(default = "default_touch_log_level")]
+    pub touch_level: String,
 }
 
 impl Config {
     pub fn load(path: impl Into<PathBuf>) -> Result<Self> {
         let path = path.into();
 
+        // Ошибки чтения/парсинга дополняем путем к файлу, чтобы на принтере было
+        // понятно, какой именно config не подхватился.
         let raw = fs::read_to_string(&path)
             .with_context(|| format!("failed to read config: {}", path.display()))?;
 
@@ -113,4 +121,8 @@ fn default_queue_size() -> usize {
 
 fn default_log_level() -> String {
     "info".to_string()
+}
+
+fn default_touch_log_level() -> String {
+    "debug".to_string()
 }

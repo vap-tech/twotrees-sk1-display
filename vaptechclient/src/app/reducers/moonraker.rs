@@ -4,6 +4,10 @@ use crate::moonraker::event::{
     PrinterStatus as MoonrakerPrinterStatus,
 };
 
+/// Применяет событие Moonraker к AppState.
+///
+/// Reducer ничего не отправляет наружу. Его задача - только привести cache
+/// состояния к новому факту, полученному из websocket.
 pub fn reduce_moonraker_event(state: &mut AppState, event: MoonrakerEvent) {
     match event {
         MoonrakerEvent::Connected => {
@@ -105,6 +109,9 @@ fn apply_printer_status(state: &mut AppState, printer_status: MoonrakerPrinterSt
             state.printer.status = PrinterStatus::Printing;
             state.printer.can_accept_commands = false;
 
+            // Если экран был на Home и Moonraker сообщил, что печать активна,
+            // автоматически переводим UI на page 2. Если пользователь уже ушел
+            // в Files/Settings, страницу не отнимаем.
             if state.ui.current_page == Page::Home {
                 state.set_page(Page::Printing);
             }

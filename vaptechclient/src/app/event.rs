@@ -1,6 +1,10 @@
 use crate::hmi::event::HmiEvent;
 use crate::moonraker::event::MoonrakerEvent;
 
+/// Единая очередь событий приложения.
+///
+/// HMI и Moonraker приходят из разных async service, но дальше проходят через
+/// один Runtime/AppRunner. Так порядок обработки становится явным и тестируемым.
 #[derive(Debug, Clone, PartialEq)]
 pub enum AppEvent {
     Hmi(HmiEvent),

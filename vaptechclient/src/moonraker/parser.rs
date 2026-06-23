@@ -3,6 +3,10 @@ use serde_json::Value;
 
 use crate::moonraker::event::{HeaterKind, KlippyState, MoonrakerEvent, PrinterStatus};
 
+/// Разбирает одно JSON-RPC сообщение Moonraker в набор доменных событий.
+///
+/// Один websocket пакет может обновлять сразу несколько объектов, поэтому
+/// parser возвращает Vec<MoonrakerEvent>.
 pub fn parse_moonraker_message(raw: &str) -> Result<Vec<MoonrakerEvent>> {
     let json: Value = serde_json::from_str(raw).context("failed to parse moonraker json")?;
 
@@ -125,6 +129,8 @@ fn parse_print_progress(status: &Value, events: &mut Vec<MoonrakerEvent>) {
         || elapsed_seconds.is_some()
         || remaining_seconds.is_some()
     {
+        // Remaining считаем приблизительно по progress + elapsed. Это не команда
+        // принтеру, только отображение ETA на HMI.
         events.push(MoonrakerEvent::PrintProgress {
             filename,
             progress_percent,

@@ -13,6 +13,10 @@ use crate::{
 
 const SUBSCRIBE_ID: u64 = 1;
 
+/// Read-only Moonraker websocket client.
+///
+/// Клиент сам отправляет только objects.subscribe. Ui/MoonrakerRequest сюда
+/// пока не подключены, чтобы во время тестов не отправить G-code в принтер.
 #[derive(Debug)]
 pub struct MoonrakerClient {
     url: String,
@@ -52,6 +56,8 @@ impl MoonrakerClient {
         self.send_moonraker_event(MoonrakerEvent::connected())
             .await?;
 
+        // Подписка read-only: просим Moonraker присылать изменения объектов,
+        // которые нужны для экрана печати и температур.
         websocket
             .send(Message::Text(objects_subscribe_message()))
             .await
@@ -85,6 +91,8 @@ impl MoonrakerClient {
 
         for event in events {
             tracing::debug!(?event, "Moonraker event parsed");
+            // Дальше события идут тем же путем, что и HMI events: через Runtime
+            // в AppRunner, reducer и renderer.
             self.send_moonraker_event(event).await?;
         }
 

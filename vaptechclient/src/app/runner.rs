@@ -6,16 +6,22 @@ use crate::app::state::{AppState, Page, PrinterStatus};
 use crate::hmi::command::HmiCommand;
 use crate::hmi::event::HmiEvent;
 use crate::moonraker::event::MoonrakerEvent;
+use crate::thumbnail::{ThumbnailKey, ThumbnailRequest, ThumbnailSource};
 use crate::ui::action_handler::handle_action;
 use crate::ui::effect::{MoonrakerRequest, UiEffect};
 use crate::ui::render_diff::render_diff;
 use crate::ui::render_full::render_full;
 use crate::ui::route::resolve_touch;
 
+/// Application core.
+///
+/// Здесь сходятся события от дисплея и Moonraker. Runner меняет AppState и
+/// копит эффекты, но сам не знает, как физически устроены UART/WebSocket.
 pub struct AppRunner {
     pub state: AppState,
     pub hmi_commands: Vec<HmiCommand>,
     pub moonraker_requests: Vec<MoonrakerRequest>,
+    pub thumbnail_requests: Vec<ThumbnailRequest>,
 }
 
 impl AppRunner {
@@ -24,6 +30,7 @@ impl AppRunner {
             state: AppState::default(),
             hmi_commands: Vec::new(),
             moonraker_requests: Vec::new(),
+            thumbnail_requests: Vec::new(),
         }
     }
 
@@ -33,6 +40,10 @@ impl AppRunner {
 
     pub fn drain_moonraker_requests(&mut self) -> Vec<MoonrakerRequest> {
         self.moonraker_requests.drain(..).collect()
+    }
+
+    pub fn drain_thumbnail_requests(&mut self) -> Vec<ThumbnailRequest> {
+        self.thumbnail_requests.drain(..).collect()
     }
 
     pub fn handle_event(&mut self, event: AppEvent) -> Result<()> {
@@ -56,6 +67,9 @@ impl AppRunner {
     fn handle_hmi_event(&mut self, event: HmiEvent) -> Result<()> {
         match event {
             HmiEvent::Startup => {
+                // Дисплей присылает одиночный 0x91 после питания.
+                // В этот момент надо восстановить экран из cache,
+                // а не безусловно уходить на Home.
                 self.render_startup_page()?;
             }
 
@@ -85,9 +99,13 @@ impl AppRunner {
         self.execute_effect(UiEffect::hmi(HmiCommand::page(page.id())))?;
 
         if page == Page::Printing {
+            // Дисплей нормально принимает переход на текущую же страницу, поэтому
+            // после init безопасно делать полный render page 2 повторно.
             for command in render_full(&self.state) {
                 self.execute_effect(UiEffect::hmi(command))?;
             }
+
+            self.request_print_thumbnail();
         }
 
         Ok(())
@@ -95,12 +113,20 @@ impl AppRunner {
 
     fn handle_moonraker_event(&mut self, event: MoonrakerEvent) -> Result<()> {
         let old_state = self.state.clone();
+        let old_filename = self.state.print.filename.clone();
 
+        // Reducer сначала меняет модель состояния, затем renderer сравнивает
+        // старое и новое состояние и выдает минимальный набор HMI-команд.
         reduce_moonraker_event(&mut self.state, event);
 
         let commands = render_diff(&old_state, &self.state);
 
         self.hmi_commands.extend(commands);
+
+        if self.state.ui.current_page == Page::Printing && old_filename != self.state.print.filename
+        {
+            self.request_print_thumbnail();
+        }
 
         Ok(())
     }
@@ -120,6 +146,19 @@ impl AppRunner {
 
         Ok(())
     }
+
+    fn request_print_thumbnail(&mut self) {
+        let Some(filename) = self.state.print.filename.clone() else {
+            return;
+        };
+
+        let key = ThumbnailKey::print(filename.clone());
+
+        self.thumbnail_requests.push(ThumbnailRequest::Prepare {
+            key,
+            source: ThumbnailSource::GcodeFile(filename),
+        });
+    }
 }
 
 fn is_print_active(status: PrinterStatus) -> bool {
@@ -132,6 +171,7 @@ mod tests {
 
     use crate::app::state::ActiveOperation;
     use crate::moonraker::event::KlippyState;
+    use crate::thumbnail::ThumbnailTarget;
 
     #[test]
     fn startup_sends_home_page() {
@@ -177,6 +217,11 @@ mod tests {
         assert!(runner.hmi_commands.contains(&HmiCommand::value("n1", 50)));
         assert!(runner.hmi_commands.contains(&HmiCommand::text("t8", "220")));
         assert!(runner.hmi_commands.contains(&HmiCommand::text("t9", "60")));
+        assert_eq!(runner.thumbnail_requests.len(), 1);
+        assert_eq!(
+            runner.thumbnail_requests[0].key().target,
+            ThumbnailTarget::PrintPage
+        );
     }
 
     #[test]

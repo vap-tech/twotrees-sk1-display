@@ -1,5 +1,9 @@
 use crate::hmi::command::HmiCommand;
 
+/// Эффект, который UI хочет выполнить снаружи.
+///
+/// Action handler не пишет сам в UART/Moonraker, а возвращает эффекты. Runtime
+/// уже решает, куда их доставить. Это держит UI-логику тестируемой.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum UiEffect {
     Hmi(HmiCommand),
@@ -7,6 +11,10 @@ pub enum UiEffect {
     None,
 }
 
+/// Потенциальные команды в Moonraker.
+///
+/// Сейчас runtime их только логирует: реальный Moonraker client read-only.
+/// Поэтому наличие enum'а не означает, что команды уже уходят в принтер.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MoonrakerRequest {
     SendGcode(String),

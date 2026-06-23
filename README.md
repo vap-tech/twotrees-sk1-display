@@ -45,6 +45,7 @@ baud = 115200
 
 [log]
 level = "info"
+touch_level = "info"
 ```
 
 Полный пример лежит в `vaptechclient/config/config.example.toml`.
@@ -80,6 +81,17 @@ RUST_LOG=trace cargo run -- --config config/config.example.toml
 - `trace` - сырые входящие сообщения Moonraker и подробный UART-поток.
 
 Для обычной проверки дисплея удобнее `debug`. Для разбора протокола - `trace`.
+
+Отдельно можно настроить уровень логирования touch-событий дисплея:
+
+```toml
+[log]
+touch_level = "info"
+```
+
+Поддерживаются `off`, `trace`, `debug`, `info`, `warn`, `error`. Это логирует
+уже разобранное событие `HmiEvent touch` с полями `page` и `component`, без сырого
+hex UART.
 
 ### Проверка
 

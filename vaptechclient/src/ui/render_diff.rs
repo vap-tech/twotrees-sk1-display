@@ -2,6 +2,10 @@ use crate::app::state::{AppState, Page, PrinterStatus};
 use crate::hmi::command::HmiCommand;
 use crate::ui::render_full::render_full;
 
+/// Минимальная перерисовка после изменения AppState.
+///
+/// Если изменилась страница - отправляем `page` и полный render. Если страница
+/// та же, шлем только изменившиеся поля, чтобы не забивать UART.
 pub fn render_diff(old: &AppState, new: &AppState) -> Vec<HmiCommand> {
     if old.ui.current_page != new.ui.current_page {
         let mut commands = vec![HmiCommand::page(new.ui.current_page.id())];
@@ -38,6 +42,8 @@ fn render_move_temp_diff(old: &AppState, new: &AppState) -> Vec<HmiCommand> {
 fn render_print_diff(old: &AppState, new: &AppState) -> Vec<HmiCommand> {
     let mut commands = render_print_temperature_diff(old, new);
 
+    // Имя файла приходит из print_stats и может появиться позже статуса Printing,
+    // поэтому обновляем его отдельно даже на уже открытой page 2.
     if old.print.filename != new.print.filename {
         commands.push(HmiCommand::text(
             "g0",
@@ -94,6 +100,7 @@ fn push_elapsed_time_diff(commands: &mut Vec<HmiCommand>, old: &AppState, new: &
     let old_minutes = old.print.elapsed_seconds / 60;
     let new_minutes = new.print.elapsed_seconds / 60;
 
+    // HMI показывает часы/минуты, поэтому секунды внутри той же минуты не шлем.
     if old_minutes == new_minutes {
         return;
     }
@@ -110,6 +117,7 @@ fn push_remaining_time_diff(commands: &mut Vec<HmiCommand>, old: &AppState, new:
         return;
     }
 
+    // Если ETA пропал, явно чистим поля в 0:00, иначе старые числа останутся.
     let minutes = new_minutes.unwrap_or(0);
 
     commands.push(HmiCommand::value("n7", (minutes / 60) as i32));

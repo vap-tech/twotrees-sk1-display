@@ -7,8 +7,11 @@ pub struct AppState {
     pub ui: UiState,
     pub process: ProcessState,
     pub print: PrintState,
+    pub files: FilesState,
 }
 
+// AppState специально хранит только модель приложения, без UART/WebSocket
+// handle'ов. Это позволяет тестировать reducer и renderer без железа.
 impl Default for AppState {
     fn default() -> Self {
         Self {
@@ -19,6 +22,7 @@ impl Default for AppState {
             ui: UiState::default(),
             process: ProcessState::default(),
             print: PrintState::default(),
+            files: FilesState::default(),
         }
     }
 }
@@ -150,6 +154,8 @@ pub struct UiState {
     pub navigation_locked: bool,
     pub global_touch_enabled: bool,
     pub move_distance: MoveDistance,
+    // generation нужен для будущей отмены долгих задач вроде thumbnail worker:
+    // пользователь ушел со страницы - старый job больше не должен дорисовывать.
     pub generation: u64,
 }
 
@@ -252,6 +258,7 @@ impl AppState {
     pub fn set_page(&mut self, page: Page) {
         self.ui.current_page = page;
         self.ui.requested_page = None;
+        // Любая смена страницы инвалидирует фоновые UI-задачи.
         self.ui.generation += 1;
     }
 
@@ -326,6 +333,38 @@ impl Default for PrintState {
             progress_percent: 0,
             elapsed_seconds: 0,
             remaining_seconds: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct FilesState {
+    pub visible_slots: [Option<FileSlot>; 3],
+}
+
+impl FilesState {
+    pub fn visible_file_at(&self, slot: u8) -> Option<&FileSlot> {
+        self.visible_slots.get(slot as usize)?.as_ref()
+    }
+
+    pub fn set_visible_slot(&mut self, slot: u8, file: Option<FileSlot>) {
+        if let Some(target) = self.visible_slots.get_mut(slot as usize) {
+            *target = file;
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FileSlot {
+    pub name: String,
+    pub path: String,
+}
+
+impl FileSlot {
+    pub fn new(name: impl Into<String>, path: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            path: path.into(),
         }
     }
 }

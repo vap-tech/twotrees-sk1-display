@@ -2,7 +2,7 @@ use anyhow::Result;
 
 use crate::app::event::AppEvent;
 use crate::app::reducers::moonraker::reduce_moonraker_event;
-use crate::app::state::{AppState, Page, PrinterStatus};
+use crate::app::state::AppState;
 use crate::hmi::command::HmiCommand;
 use crate::hmi::event::HmiEvent;
 use crate::moonraker::event::MoonrakerEvent;
@@ -10,7 +10,8 @@ use crate::thumbnail::{ThumbnailKey, ThumbnailRequest, ThumbnailSource};
 use crate::ui::action_handler::handle_action;
 use crate::ui::effect::{MoonrakerRequest, UiEffect};
 use crate::ui::render_diff::render_diff;
-use crate::ui::render_full::render_full;
+use crate::ui::render_full::render_full_target;
+use crate::ui::render_target::resolve_render_target;
 use crate::ui::route::resolve_touch;
 
 /// Application core.
@@ -89,22 +90,17 @@ impl AppRunner {
     }
 
     fn render_startup_page(&mut self) -> Result<()> {
-        let page = if is_print_active(self.state.printer.status) {
-            Page::Printing
-        } else {
-            Page::Home
-        };
+        let target = resolve_render_target(&self.state);
 
-        self.state.set_page(page);
-        self.execute_effect(UiEffect::hmi(HmiCommand::page(page.id())))?;
+        self.execute_effect(UiEffect::hmi(HmiCommand::page(target.page_id())))?;
 
-        if page == Page::Printing {
-            // Дисплей нормально принимает переход на текущую же страницу, поэтому
-            // после init безопасно делать полный render page 2 повторно.
-            for command in render_full(&self.state) {
-                self.execute_effect(UiEffect::hmi(command))?;
-            }
+        // Дисплей нормально принимает переход на текущую же страницу, поэтому
+        // после init безопасно делать полный render текущего visual target.
+        for command in render_full_target(target, &self.state) {
+            self.execute_effect(UiEffect::hmi(command))?;
+        }
 
+        if target.is_print_view() {
             self.request_print_thumbnail();
         }
 
@@ -123,7 +119,8 @@ impl AppRunner {
 
         self.hmi_commands.extend(commands);
 
-        if self.state.ui.current_page == Page::Printing && old_filename != self.state.print.filename
+        if resolve_render_target(&self.state).is_print_view()
+            && old_filename != self.state.print.filename
         {
             self.request_print_thumbnail();
         }
@@ -165,15 +162,11 @@ impl AppRunner {
     }
 }
 
-fn is_print_active(status: PrinterStatus) -> bool {
-    matches!(status, PrinterStatus::Printing | PrinterStatus::Paused)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    use crate::app::state::ActiveOperation;
+    use crate::app::state::{ActiveOperation, Page, PrinterStatus};
     use crate::moonraker::event::KlippyState;
     use crate::thumbnail::ThumbnailTarget;
 
@@ -185,8 +178,17 @@ mod tests {
             .handle_event(AppEvent::hmi(HmiEvent::Startup))
             .unwrap();
 
-        assert_eq!(runner.state.ui.current_page, Page::Home);
-        assert_eq!(runner.hmi_commands, vec![HmiCommand::page(Page::Home.id())]);
+        assert_eq!(runner.state.hmi.current_screen, Page::Home);
+        assert_eq!(
+            runner.hmi_commands,
+            vec![
+                HmiCommand::page(Page::Home.id()),
+                HmiCommand::value("n0", 0),
+                HmiCommand::value("n1", 0),
+                HmiCommand::value("n4", 0),
+                HmiCommand::value("n5", 0),
+            ]
+        );
     }
 
     #[test]
@@ -205,7 +207,9 @@ mod tests {
             .handle_event(AppEvent::hmi(HmiEvent::Startup))
             .unwrap();
 
-        assert_eq!(runner.state.ui.current_page, Page::Printing);
+        // Startup не меняет пользовательский screen: HMI остается на Home, а
+        // RenderTarget решает показать physical page 2, потому что идет печать.
+        assert_eq!(runner.state.hmi.current_screen, Page::Home);
         assert_eq!(runner.hmi_commands.first(), Some(&HmiCommand::page(2)));
         assert!(
             runner
@@ -236,7 +240,7 @@ mod tests {
             .handle_event(AppEvent::hmi(HmiEvent::touch(0, 1)))
             .unwrap();
 
-        assert_eq!(runner.state.ui.current_page, Page::Settings);
+        assert_eq!(runner.state.hmi.current_screen, Page::Settings);
         assert_eq!(
             runner.hmi_commands,
             vec![HmiCommand::page(Page::Settings.id())]
@@ -253,7 +257,7 @@ mod tests {
             .handle_event(AppEvent::hmi(HmiEvent::touch(0, 1)))
             .unwrap();
 
-        assert_eq!(runner.state.ui.current_page, Page::Home);
+        assert_eq!(runner.state.hmi.current_screen, Page::Home);
         assert!(runner.hmi_commands.is_empty());
     }
 

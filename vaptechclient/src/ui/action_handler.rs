@@ -1,6 +1,7 @@
 use crate::app::state::{ActiveOperation, AppState, FanKind, MoveDistance, Page, PrinterStatus};
 use crate::hmi::command::HmiCommand;
 use crate::ui::effect::{MoonrakerRequest, UiEffect};
+use crate::ui::render_target::resolve_render_target;
 use crate::ui::route::UiAction;
 
 /// Выполняет уже распознанное UI-действие.
@@ -23,17 +24,17 @@ pub fn handle_action(state: &mut AppState, action: UiAction) -> Vec<UiEffect> {
         UiAction::ChangePage(page) => handle_change_page(state, page),
 
         UiAction::MoveDistance1 => {
-            state.ui.move_distance = MoveDistance::Mm1;
+            state.hmi.move_distance = MoveDistance::Mm1;
             Vec::new()
         }
 
         UiAction::MoveDistance10 => {
-            state.ui.move_distance = MoveDistance::Mm10;
+            state.hmi.move_distance = MoveDistance::Mm10;
             Vec::new()
         }
 
         UiAction::MoveDistance30 => {
-            state.ui.move_distance = MoveDistance::Mm30;
+            state.hmi.move_distance = MoveDistance::Mm30;
             Vec::new()
         }
 
@@ -131,7 +132,9 @@ fn handle_change_page(state: &mut AppState, page: Page) -> Vec<UiEffect> {
         return Vec::new();
     }
 
-    vec![UiEffect::hmi(HmiCommand::page(page.id()))]
+    vec![UiEffect::hmi(HmiCommand::page(
+        resolve_render_target(state).page_id(),
+    ))]
 }
 
 fn toggle_fan(state: &mut AppState, fan: FanKind) {
@@ -156,7 +159,7 @@ mod tests {
 
         let effects = handle_action(&mut state, UiAction::ChangePage(Page::Settings));
 
-        assert_eq!(state.ui.current_page, Page::Settings);
+        assert_eq!(state.hmi.current_screen, Page::Settings);
         assert_eq!(
             effects,
             vec![UiEffect::hmi(HmiCommand::page(Page::Settings.id()))]
@@ -171,7 +174,7 @@ mod tests {
 
         let effects = handle_action(&mut state, UiAction::ChangePage(Page::Settings));
 
-        assert_eq!(state.ui.current_page, Page::Home);
+        assert_eq!(state.hmi.current_screen, Page::Home);
         assert!(effects.is_empty());
     }
 
@@ -181,7 +184,7 @@ mod tests {
 
         let effects = handle_action(&mut state, UiAction::MoveDistance1);
 
-        assert_eq!(state.ui.move_distance, MoveDistance::Mm1);
+        assert_eq!(state.hmi.move_distance, MoveDistance::Mm1);
         assert!(effects.is_empty());
     }
 
@@ -189,11 +192,11 @@ mod tests {
     fn move_distance_10_updates_state_without_effects() {
         let mut state = AppState::default();
 
-        state.ui.move_distance = MoveDistance::Mm1;
+        state.hmi.move_distance = MoveDistance::Mm1;
 
         let effects = handle_action(&mut state, UiAction::MoveDistance10);
 
-        assert_eq!(state.ui.move_distance, MoveDistance::Mm10);
+        assert_eq!(state.hmi.move_distance, MoveDistance::Mm10);
         assert!(effects.is_empty());
     }
 
@@ -203,7 +206,7 @@ mod tests {
 
         let effects = handle_action(&mut state, UiAction::MoveDistance30);
 
-        assert_eq!(state.ui.move_distance, MoveDistance::Mm30);
+        assert_eq!(state.hmi.move_distance, MoveDistance::Mm30);
         assert!(effects.is_empty());
     }
 
@@ -266,7 +269,7 @@ mod tests {
 
         let effects = handle_action(&mut state, UiAction::HomeAllAxes);
 
-        assert!(state.ui.navigation_locked);
+        assert!(state.hmi.navigation_locked);
         assert_eq!(state.process.active_operation, ActiveOperation::Homing);
         assert_eq!(effects, vec![UiEffect::gcode("G28")]);
     }
@@ -279,7 +282,7 @@ mod tests {
         for page in [Page::Calibration, Page::MoveTemp, Page::LoadUnload] {
             let effects = handle_action(&mut state, UiAction::ChangePage(page));
 
-            assert_eq!(state.ui.current_page, Page::Home);
+            assert_eq!(state.hmi.current_screen, Page::Home);
             assert!(effects.is_empty());
         }
     }
@@ -291,7 +294,7 @@ mod tests {
 
         let effects = handle_action(&mut state, UiAction::ChangePage(Page::Settings));
 
-        assert_eq!(state.ui.current_page, Page::Settings);
+        assert_eq!(state.hmi.current_screen, Page::Settings);
         assert_eq!(
             effects,
             vec![UiEffect::hmi(HmiCommand::page(Page::Settings.id()))]
@@ -299,7 +302,7 @@ mod tests {
 
         let effects = handle_action(&mut state, UiAction::ChangePage(Page::Files));
 
-        assert_eq!(state.ui.current_page, Page::Files);
+        assert_eq!(state.hmi.current_screen, Page::Files);
         assert_eq!(
             effects,
             vec![UiEffect::hmi(HmiCommand::page(Page::Files.id()))]
@@ -319,7 +322,7 @@ mod tests {
             let effects = handle_action(&mut state, action);
 
             assert_eq!(state.process.active_operation, ActiveOperation::None);
-            assert!(!state.ui.navigation_locked);
+            assert!(!state.hmi.navigation_locked);
             assert!(effects.is_empty());
         }
     }
@@ -331,17 +334,17 @@ mod tests {
 
         let effects = handle_action(&mut state, UiAction::ChangePage(Page::Calibration));
 
-        assert_eq!(state.ui.current_page, Page::Home);
+        assert_eq!(state.hmi.current_screen, Page::Home);
         assert!(effects.is_empty());
 
         let effects = handle_action(&mut state, UiAction::ChangePage(Page::MoveTemp));
 
-        assert_eq!(state.ui.current_page, Page::Home);
+        assert_eq!(state.hmi.current_screen, Page::Home);
         assert!(effects.is_empty());
 
         let effects = handle_action(&mut state, UiAction::ChangePage(Page::LoadUnload));
 
-        assert_eq!(state.ui.current_page, Page::LoadUnload);
+        assert_eq!(state.hmi.current_screen, Page::LoadUnload);
         assert_eq!(
             effects,
             vec![UiEffect::hmi(HmiCommand::page(Page::LoadUnload.id()))]
@@ -394,7 +397,7 @@ mod tests {
             state.process.active_operation,
             ActiveOperation::LoadFilament
         );
-        assert!(state.ui.navigation_locked);
+        assert!(state.hmi.navigation_locked);
         assert_eq!(effects, vec![UiEffect::gcode("LOAD_MATERIAL")]);
     }
 
@@ -408,7 +411,7 @@ mod tests {
             state.process.active_operation,
             ActiveOperation::UnloadFilament
         );
-        assert!(state.ui.navigation_locked);
+        assert!(state.hmi.navigation_locked);
         assert_eq!(effects, vec![UiEffect::gcode("UNLOAD_MATERIAL")]);
     }
 

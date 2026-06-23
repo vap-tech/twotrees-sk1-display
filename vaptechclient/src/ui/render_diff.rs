@@ -1,23 +1,27 @@
-use crate::app::state::{AppState, Page, PrinterStatus};
+use crate::app::state::{AppState, PrinterStatus};
 use crate::hmi::command::HmiCommand;
-use crate::ui::render_full::render_full;
+use crate::ui::render_full::render_full_target;
+use crate::ui::render_target::{HomeMode, RenderTarget, resolve_render_target};
 
 /// Минимальная перерисовка после изменения AppState.
 ///
 /// Если изменилась страница - отправляем `page` и полный render. Если страница
 /// та же, шлем только изменившиеся поля, чтобы не забивать UART.
 pub fn render_diff(old: &AppState, new: &AppState) -> Vec<HmiCommand> {
-    if old.ui.current_page != new.ui.current_page {
-        let mut commands = vec![HmiCommand::page(new.ui.current_page.id())];
+    let old_target = resolve_render_target(old);
+    let new_target = resolve_render_target(new);
 
-        commands.extend(render_full(new));
+    if old_target != new_target {
+        let mut commands = vec![HmiCommand::page(new_target.page_id())];
+
+        commands.extend(render_full_target(new_target, new));
         return commands;
     }
 
-    match new.ui.current_page {
-        Page::Home => render_home_diff(old, new),
-        Page::Print | Page::Printing => render_print_diff(old, new),
-        Page::MoveTemp => render_move_temp_diff(old, new),
+    match new_target {
+        RenderTarget::Home(HomeMode::Idle) => render_home_diff(old, new),
+        RenderTarget::Home(HomeMode::Printing) | RenderTarget::Print => render_print_diff(old, new),
+        RenderTarget::MoveTemp => render_move_temp_diff(old, new),
         _ => Vec::new(),
     }
 }
@@ -29,10 +33,10 @@ fn render_home_diff(old: &AppState, new: &AppState) -> Vec<HmiCommand> {
 fn render_move_temp_diff(old: &AppState, new: &AppState) -> Vec<HmiCommand> {
     let mut commands = render_temperature_diff(old, new);
 
-    if old.ui.move_distance != new.ui.move_distance {
+    if old.hmi.move_distance != new.hmi.move_distance {
         commands.push(HmiCommand::value(
             "n3",
-            new.ui.move_distance.value_mm() as i32,
+            new.hmi.move_distance.value_mm() as i32,
         ));
     }
 
@@ -217,7 +221,7 @@ mod tests {
         new.set_page(Page::MoveTemp);
         new.set_nozzle_temperature(200.0, 210.0);
         new.set_bed_temperature(50.0, 55.0);
-        new.ui.move_distance = MoveDistance::Mm30;
+        new.hmi.move_distance = MoveDistance::Mm30;
 
         let commands = render_diff(&old, &new);
 
@@ -291,10 +295,10 @@ mod tests {
     fn same_move_temp_page_move_distance_change_is_rendered() {
         let mut old = AppState::default();
         old.set_page(Page::MoveTemp);
-        old.ui.move_distance = MoveDistance::Mm10;
+        old.hmi.move_distance = MoveDistance::Mm10;
 
         let mut new = old.clone();
-        new.ui.move_distance = MoveDistance::Mm30;
+        new.hmi.move_distance = MoveDistance::Mm30;
 
         let commands = render_diff(&old, &new);
 

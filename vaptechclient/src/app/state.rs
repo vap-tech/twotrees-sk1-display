@@ -4,7 +4,7 @@ pub struct AppState {
     pub printer: PrinterState,
     pub temperatures: TemperatureState,
     pub fans: FanState,
-    pub ui: UiState,
+    pub hmi: HmiState,
     pub process: ProcessState,
     pub print: PrintState,
     pub files: FilesState,
@@ -19,7 +19,7 @@ impl Default for AppState {
             printer: PrinterState::default(),
             temperatures: TemperatureState::default(),
             fans: FanState::default(),
-            ui: UiState::default(),
+            hmi: HmiState::default(),
             process: ProcessState::default(),
             print: PrintState::default(),
             files: FilesState::default(),
@@ -148,9 +148,9 @@ impl Default for FanSpeed {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct UiState {
-    pub current_page: Page,
-    pub requested_page: Option<Page>,
+pub struct HmiState {
+    pub current_screen: Screen,
+    pub requested_screen: Option<Screen>,
     pub navigation_locked: bool,
     pub global_touch_enabled: bool,
     pub move_distance: MoveDistance,
@@ -159,11 +159,11 @@ pub struct UiState {
     pub generation: u64,
 }
 
-impl Default for UiState {
+impl Default for HmiState {
     fn default() -> Self {
         Self {
-            current_page: Page::Home,
-            requested_page: None,
+            current_screen: Page::Home,
+            requested_screen: None,
             navigation_locked: false,
             global_touch_enabled: true,
             move_distance: MoveDistance::Mm10,
@@ -186,6 +186,8 @@ pub enum Page {
     Error,
     Unknown(u16),
 }
+
+pub type Screen = Page;
 
 impl Page {
     pub fn id(self) -> u16 {
@@ -256,14 +258,14 @@ impl AppState {
     }
 
     pub fn set_page(&mut self, page: Page) {
-        self.ui.current_page = page;
-        self.ui.requested_page = None;
+        self.hmi.current_screen = page;
+        self.hmi.requested_screen = None;
         // Любая смена страницы инвалидирует фоновые UI-задачи.
-        self.ui.generation += 1;
+        self.hmi.generation += 1;
     }
 
     pub fn request_page(&mut self, page: Page) -> bool {
-        if self.ui.navigation_locked || !self.ui.global_touch_enabled {
+        if self.hmi.navigation_locked || !self.hmi.global_touch_enabled {
             return false;
         }
 
@@ -273,14 +275,14 @@ impl AppState {
 
     pub fn lock_navigation(&mut self, operation: ActiveOperation) {
         self.process.active_operation = operation;
-        self.ui.navigation_locked = true;
-        self.ui.global_touch_enabled = false;
+        self.hmi.navigation_locked = true;
+        self.hmi.global_touch_enabled = false;
     }
 
     pub fn unlock_navigation(&mut self) {
         self.process.active_operation = ActiveOperation::None;
-        self.ui.navigation_locked = false;
-        self.ui.global_touch_enabled = true;
+        self.hmi.navigation_locked = false;
+        self.hmi.global_touch_enabled = true;
     }
 
     pub fn set_nozzle_temperature(&mut self, current: f32, target: f32) {
@@ -379,8 +381,8 @@ mod tests {
 
         assert_eq!(state.connection.moonraker, ConnectionStatus::Disconnected);
         assert_eq!(state.connection.klipper, KlipperStatus::Unknown);
-        assert_eq!(state.ui.current_page, Page::Home);
-        assert_eq!(state.ui.move_distance, MoveDistance::Mm10);
+        assert_eq!(state.hmi.current_screen, Page::Home);
+        assert_eq!(state.hmi.move_distance, MoveDistance::Mm10);
         assert!(!state.printer.can_accept_commands);
     }
 
@@ -397,12 +399,12 @@ mod tests {
     fn set_page_updates_page_and_generation() {
         let mut state = AppState::default();
 
-        assert_eq!(state.ui.generation, 0);
+        assert_eq!(state.hmi.generation, 0);
 
         state.set_page(Page::Settings);
 
-        assert_eq!(state.ui.current_page, Page::Settings);
-        assert_eq!(state.ui.generation, 1);
+        assert_eq!(state.hmi.current_screen, Page::Settings);
+        assert_eq!(state.hmi.generation, 1);
     }
 
     #[test]
@@ -414,7 +416,7 @@ mod tests {
         let accepted = state.request_page(Page::Settings);
 
         assert!(!accepted);
-        assert_eq!(state.ui.current_page, Page::Home);
+        assert_eq!(state.hmi.current_screen, Page::Home);
     }
 
     #[test]
@@ -427,7 +429,7 @@ mod tests {
         let accepted = state.request_page(Page::Settings);
 
         assert!(accepted);
-        assert_eq!(state.ui.current_page, Page::Settings);
+        assert_eq!(state.hmi.current_screen, Page::Settings);
     }
 
     #[test]

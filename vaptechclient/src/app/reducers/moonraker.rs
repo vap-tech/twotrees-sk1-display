@@ -1,4 +1,4 @@
-use crate::app::state::{AppState, ConnectionStatus, KlipperStatus, Page, PrinterStatus};
+use crate::app::state::{AppState, ConnectionStatus, KlipperStatus, PrinterStatus};
 use crate::moonraker::event::{
     HeaterKind, KlippyState as MoonrakerKlippyState, MoonrakerEvent,
     PrinterStatus as MoonrakerPrinterStatus,
@@ -108,13 +108,6 @@ fn apply_printer_status(state: &mut AppState, printer_status: MoonrakerPrinterSt
         MoonrakerPrinterStatus::Printing => {
             state.printer.status = PrinterStatus::Printing;
             state.printer.can_accept_commands = false;
-
-            // Если экран был на Home и Moonraker сообщил, что печать активна,
-            // автоматически переводим UI на page 2. Если пользователь уже ушел
-            // в Files/Settings, страницу не отнимаем.
-            if state.ui.current_page == Page::Home {
-                state.set_page(Page::Printing);
-            }
         }
 
         MoonrakerPrinterStatus::Paused => {
@@ -256,7 +249,7 @@ mod tests {
     }
 
     #[test]
-    fn printer_status_printing_from_home_switches_to_printing_page() {
+    fn printer_status_printing_from_home_keeps_user_screen() {
         let mut state = AppState::default();
 
         reduce_moonraker_event(
@@ -264,20 +257,20 @@ mod tests {
             MoonrakerEvent::printer_status(MoonrakerPrinterStatus::Printing),
         );
 
-        assert_eq!(state.ui.current_page, Page::Printing);
+        assert_eq!(state.hmi.current_screen, crate::app::state::Page::Home);
     }
 
     #[test]
     fn printer_status_printing_does_not_steal_non_home_page() {
         let mut state = AppState::default();
-        state.set_page(Page::Files);
+        state.set_page(crate::app::state::Page::Files);
 
         reduce_moonraker_event(
             &mut state,
             MoonrakerEvent::printer_status(MoonrakerPrinterStatus::Printing),
         );
 
-        assert_eq!(state.ui.current_page, Page::Files);
+        assert_eq!(state.hmi.current_screen, crate::app::state::Page::Files);
     }
 
     #[test]

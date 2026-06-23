@@ -7,6 +7,7 @@ use crate::app::state::Page;
 use crate::hmi::command::HmiCommand;
 use crate::thumbnail::cache::{ThumbnailCache, ThumbnailState};
 use crate::thumbnail::{ThumbnailKey, ThumbnailRequest, ThumbnailResult, ThumbnailTarget};
+use crate::ui::render_target::resolve_render_target;
 
 /// Центральный async loop приложения.
 ///
@@ -191,11 +192,11 @@ impl Runtime {
     fn thumbnail_is_current(&self, key: &ThumbnailKey) -> bool {
         match key.target {
             ThumbnailTarget::PrintPage => {
-                self.runner.state.ui.current_page == Page::Printing
+                resolve_render_target(&self.runner.state).is_print_view()
                     && self.runner.state.print.filename.as_deref() == Some(key.file_path.as_str())
             }
             ThumbnailTarget::FileSlot { slot } => {
-                self.runner.state.ui.current_page == Page::Files
+                self.runner.state.hmi.current_screen == Page::Files
                     && self
                         .runner
                         .state

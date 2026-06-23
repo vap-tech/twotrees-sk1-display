@@ -1,5 +1,6 @@
-use crate::app::state::{AppState, Page, PrinterStatus};
+use crate::app::state::{AppState, PrinterStatus};
 use crate::hmi::command::HmiCommand;
+use crate::ui::render_target::{HomeMode, RenderTarget, resolve_render_target};
 
 /// Полная отрисовка текущей страницы.
 ///
@@ -7,11 +8,18 @@ use crate::hmi::command::HmiCommand;
 /// Дисплей нормально принимает повторный `page N`, поэтому full render можно
 /// безопасно отправлять даже если визуально он уже на этой странице.
 pub fn render_full(state: &AppState) -> Vec<HmiCommand> {
-    match state.ui.current_page {
-        Page::Home => render_home_full(state),
-        Page::Print | Page::Printing => render_print_full(state),
-        Page::MoveTemp => render_move_temp_full(state),
-        Page::Settings => render_settings_full(state),
+    render_full_target(resolve_render_target(state), state)
+}
+
+pub fn render_full_target(target: RenderTarget, state: &AppState) -> Vec<HmiCommand> {
+    match target {
+        RenderTarget::Home(HomeMode::Idle) => render_home_full(state),
+        RenderTarget::Home(HomeMode::Printing) | RenderTarget::Print => render_print_full(state),
+        RenderTarget::Home(HomeMode::Complete) => render_result_full(true),
+        RenderTarget::Home(HomeMode::Cancelled) => render_result_full(false),
+        RenderTarget::Home(HomeMode::Error) | RenderTarget::Error => render_error_full(state),
+        RenderTarget::MoveTemp => render_move_temp_full(state),
+        RenderTarget::Settings => render_settings_full(state),
         _ => Vec::new(),
     }
 }
@@ -31,7 +39,7 @@ fn render_move_temp_full(state: &AppState) -> Vec<HmiCommand> {
         HmiCommand::value("n1", round_temperature(state.temperatures.nozzle.target)),
         HmiCommand::value("n4", round_temperature(state.temperatures.bed.current)),
         HmiCommand::value("n5", round_temperature(state.temperatures.bed.target)),
-        HmiCommand::value("n3", state.ui.move_distance.value_mm() as i32),
+        HmiCommand::value("n3", state.hmi.move_distance.value_mm() as i32),
     ]
 }
 
@@ -68,6 +76,17 @@ fn render_print_full(state: &AppState) -> Vec<HmiCommand> {
 }
 
 fn render_settings_full(_state: &AppState) -> Vec<HmiCommand> {
+    Vec::new()
+}
+
+fn render_result_full(success: bool) -> Vec<HmiCommand> {
+    vec![HmiCommand::value(
+        "print_done_flag",
+        if success { 1 } else { 0 },
+    )]
+}
+
+fn render_error_full(_state: &AppState) -> Vec<HmiCommand> {
     Vec::new()
 }
 
@@ -117,7 +136,7 @@ mod tests {
         let mut state = AppState::default();
 
         state.set_page(Page::MoveTemp);
-        state.ui.move_distance = MoveDistance::Mm30;
+        state.hmi.move_distance = MoveDistance::Mm30;
 
         state.set_nozzle_temperature(200.0, 210.0);
         state.set_bed_temperature(50.0, 55.0);
@@ -206,6 +225,15 @@ mod tests {
         let commands = render_full(&state);
 
         assert!(commands.is_empty());
+    }
+
+    #[test]
+    fn render_target_home_modes_map_to_expected_page_ids() {
+        assert_eq!(RenderTarget::Home(HomeMode::Idle).page_id(), 0);
+        assert_eq!(RenderTarget::Home(HomeMode::Printing).page_id(), 2);
+        assert_eq!(RenderTarget::Home(HomeMode::Error).page_id(), 56);
+        assert_eq!(RenderTarget::Home(HomeMode::Cancelled).page_id(), 77);
+        assert_eq!(RenderTarget::Home(HomeMode::Complete).page_id(), 77);
     }
 
     #[test]

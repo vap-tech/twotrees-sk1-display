@@ -80,10 +80,11 @@ fn render_settings_full(_state: &AppState) -> Vec<HmiCommand> {
 }
 
 fn render_result_full(success: bool) -> Vec<HmiCommand> {
-    vec![HmiCommand::value(
-        "print_done_flag",
-        if success { 1 } else { 0 },
-    )]
+    vec![
+        HmiCommand::raw("print_done.cp0.close()"),
+        HmiCommand::visible("print_done.cp0", false),
+        HmiCommand::value("print_done_flag", if success { 1 } else { 0 }),
+    ]
 }
 
 fn render_error_full(_state: &AppState) -> Vec<HmiCommand> {

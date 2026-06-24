@@ -55,6 +55,17 @@ impl RenderTarget {
     pub fn is_print_view(self) -> bool {
         matches!(self, Self::Home(HomeMode::Printing) | Self::Print)
     }
+
+    pub fn is_result_view(self) -> bool {
+        matches!(
+            self,
+            Self::Home(HomeMode::Complete | HomeMode::Cancelled) | Self::Result(_)
+        )
+    }
+
+    pub fn wants_thumbnail(self) -> bool {
+        self.is_print_view() || self.is_result_view()
+    }
 }
 
 pub fn resolve_render_target(state: &AppState) -> RenderTarget {

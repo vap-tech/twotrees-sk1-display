@@ -206,7 +206,10 @@ impl Runtime {
                         == Some(key.file_path.as_str())
             }
             ThumbnailTarget::PreviewPage => false,
-            ThumbnailTarget::ResultPage => false,
+            ThumbnailTarget::ResultPage => {
+                resolve_render_target(&self.runner.state).is_result_view()
+                    && self.runner.state.print.filename.as_deref() == Some(key.file_path.as_str())
+            }
         }
     }
 }
@@ -215,7 +218,7 @@ impl Runtime {
 mod tests {
     use super::*;
 
-    use crate::app::state::{FileSlot, Page};
+    use crate::app::state::{FileSlot, Page as HmiPage, PrinterStatus as AppPrinterStatus};
     use crate::hmi::event::HmiEvent;
     use crate::moonraker::event::{MoonrakerEvent, PrinterStatus};
     use crate::thumbnail::ThumbnailKey;
@@ -303,7 +306,7 @@ mod tests {
         let (hmi_command_tx, _hmi_command_rx) = mpsc::channel(1);
 
         let mut runtime = Runtime::new(AppRunner::new(), app_event_rx, hmi_command_tx);
-        runtime.runner.state.set_page(Page::Files);
+        runtime.runner.state.set_page(HmiPage::Files);
         runtime
             .runner
             .state
@@ -324,6 +327,27 @@ mod tests {
         assert!(
             !runtime.thumbnail_is_current(&ThumbnailKey::file_slot("A.gcode", 0)),
             "old file must not render into a reused slot"
+        );
+    }
+
+    #[test]
+    fn result_thumbnail_is_current_only_for_completed_same_file() {
+        let (_app_event_tx, app_event_rx) = mpsc::channel(1);
+        let (hmi_command_tx, _hmi_command_rx) = mpsc::channel(1);
+
+        let mut runtime = Runtime::new(AppRunner::new(), app_event_rx, hmi_command_tx);
+        runtime.runner.state.set_page(HmiPage::Home);
+        runtime.runner.state.printer.status = AppPrinterStatus::Complete;
+        runtime.runner.state.print.filename = Some("cube.gcode".to_string());
+
+        assert!(
+            runtime.thumbnail_is_current(&ThumbnailKey::result("cube.gcode")),
+            "completed print result page should accept matching result thumbnail"
+        );
+
+        assert!(
+            !runtime.thumbnail_is_current(&ThumbnailKey::result("other.gcode")),
+            "result page must not accept thumbnail for another file"
         );
     }
 }

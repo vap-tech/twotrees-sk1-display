@@ -41,6 +41,18 @@ impl ThumbnailKey {
             encoder_version: tjc_encoder::ENCODER_VERSION,
         }
     }
+
+    pub fn result(file_path: impl Into<String>) -> Self {
+        Self {
+            file_path: file_path.into(),
+            file_modified: None,
+            file_size: None,
+            target: ThumbnailTarget::ResultPage,
+            width: 155,
+            height: 155,
+            encoder_version: tjc_encoder::ENCODER_VERSION,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

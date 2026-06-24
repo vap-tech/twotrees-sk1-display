@@ -11,7 +11,7 @@ use crate::ui::action_handler::handle_action;
 use crate::ui::effect::{MoonrakerRequest, UiEffect};
 use crate::ui::render_diff::render_diff;
 use crate::ui::render_full::render_full_target;
-use crate::ui::render_target::resolve_render_target;
+use crate::ui::render_target::{RenderTarget, resolve_render_target};
 use crate::ui::route::resolve_touch;
 
 /// Application core.
@@ -100,29 +100,28 @@ impl AppRunner {
             self.execute_effect(UiEffect::hmi(command))?;
         }
 
-        if target.is_print_view() {
-            self.request_print_thumbnail();
-        }
+        self.request_thumbnail_for_target(target);
 
         Ok(())
     }
 
     fn handle_moonraker_event(&mut self, event: MoonrakerEvent) -> Result<()> {
         let old_state = self.state.clone();
-        let old_filename = self.state.print.filename.clone();
+        let old_target = resolve_render_target(&old_state);
+        let old_filename = old_state.print.filename.clone();
 
         // Reducer сначала меняет модель состояния, затем renderer сравнивает
         // старое и новое состояние и выдает минимальный набор HMI-команд.
         reduce_moonraker_event(&mut self.state, event);
 
         let commands = render_diff(&old_state, &self.state);
+        let new_target = resolve_render_target(&self.state);
+        let filename_changed = old_filename != self.state.print.filename;
 
         self.hmi_commands.extend(commands);
 
-        if resolve_render_target(&self.state).is_print_view()
-            && old_filename != self.state.print.filename
-        {
-            self.request_print_thumbnail();
+        if new_target.wants_thumbnail() && (old_target != new_target || filename_changed) {
+            self.request_thumbnail_for_target(new_target);
         }
 
         Ok(())
@@ -144,12 +143,18 @@ impl AppRunner {
         Ok(())
     }
 
-    fn request_print_thumbnail(&mut self) {
+    fn request_thumbnail_for_target(&mut self, target: RenderTarget) {
         let Some(filename) = self.state.print.filename.clone() else {
             return;
         };
 
-        let key = ThumbnailKey::print(filename.clone());
+        let key = if target.is_print_view() {
+            ThumbnailKey::print(filename.clone())
+        } else if target.is_result_view() {
+            ThumbnailKey::result(filename.clone())
+        } else {
+            return;
+        };
 
         self.thumbnail_requests.push(ThumbnailRequest::Prepare {
             key,
@@ -168,7 +173,7 @@ mod tests {
 
     use crate::app::state::{ActiveOperation, Page, PrinterStatus};
     use crate::moonraker::event::KlippyState;
-    use crate::thumbnail::ThumbnailTarget;
+    use crate::thumbnail::{ThumbnailKey, ThumbnailTarget};
 
     #[test]
     fn startup_sends_home_page() {
@@ -229,6 +234,57 @@ mod tests {
         assert_eq!(
             runner.thumbnail_requests[0].key().target,
             ThumbnailTarget::PrintPage
+        );
+    }
+
+    #[test]
+    fn startup_after_completed_print_requests_result_thumbnail() {
+        let mut runner = AppRunner::new();
+
+        runner.state.printer.status = PrinterStatus::Complete;
+        runner.state.print.filename = Some("cube.gcode".to_string());
+
+        runner
+            .handle_event(AppEvent::hmi(HmiEvent::Startup))
+            .unwrap();
+
+        assert_eq!(runner.state.hmi.current_screen, Page::Home);
+        assert_eq!(runner.hmi_commands.first(), Some(&HmiCommand::page(77)));
+        assert!(
+            runner
+                .hmi_commands
+                .contains(&HmiCommand::raw("print_done.cp0.close()"))
+        );
+        assert!(
+            runner
+                .hmi_commands
+                .contains(&HmiCommand::visible("print_done.cp0", false))
+        );
+        assert_eq!(runner.thumbnail_requests.len(), 1);
+        assert_eq!(
+            runner.thumbnail_requests[0].key().target,
+            ThumbnailTarget::ResultPage
+        );
+    }
+
+    #[test]
+    fn moonraker_complete_status_requests_result_thumbnail() {
+        let mut runner = AppRunner::new();
+
+        runner.state.printer.status = PrinterStatus::Printing;
+        runner.state.print.filename = Some("cube.gcode".to_string());
+
+        runner
+            .handle_event(AppEvent::moonraker(MoonrakerEvent::printer_status(
+                crate::moonraker::event::PrinterStatus::Complete,
+            )))
+            .unwrap();
+
+        assert_eq!(runner.hmi_commands.first(), Some(&HmiCommand::page(77)));
+        assert_eq!(runner.thumbnail_requests.len(), 1);
+        assert_eq!(
+            runner.thumbnail_requests[0].key(),
+            &ThumbnailKey::result("cube.gcode")
         );
     }
 

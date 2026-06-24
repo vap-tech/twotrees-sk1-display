@@ -306,6 +306,20 @@ mod tests {
     }
 
     #[test]
+    fn result_thumbnail_chunks_use_print_done_component() {
+        let commands = commands_from_chunks(&ThumbnailTarget::ResultPage, &["abc".to_string()]);
+
+        assert_eq!(
+            commands,
+            vec![
+                HmiCommand::raw("print_done.cp0.close()"),
+                HmiCommand::raw("vis print_done.cp0,1"),
+                HmiCommand::raw("print_done.cp0.write(\"abc\")"),
+            ]
+        );
+    }
+
+    #[test]
     fn encodes_known_thumbnail_to_tjc_chunks() {
         let bytes = extract_thumbnail_bytes_from_gcode_str(GCODE_FIXTURE).unwrap();
         let rgba = decode_resize_rgba(&bytes, 155, 155).unwrap();

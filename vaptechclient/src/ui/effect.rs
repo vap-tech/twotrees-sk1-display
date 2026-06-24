@@ -29,6 +29,7 @@ pub enum MoonrakerRequest {
     SetPartFan(u8),
     SetSideFan(u8),
     SetFilterFan(u8),
+    SetCaseLight(bool),
 }
 
 impl UiEffect {

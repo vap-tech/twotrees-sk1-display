@@ -7,12 +7,14 @@ use crate::hmi::command::HmiCommand;
 use crate::hmi::event::HmiEvent;
 use crate::moonraker::event::MoonrakerEvent;
 use crate::thumbnail::{ThumbnailKey, ThumbnailRequest, ThumbnailSource};
-use crate::ui::action_handler::handle_action;
+use crate::ui::action_handler::{
+    apply_hmi_intent, intent_is_blocked_by_printer_state, moonraker_requests_for_intent,
+};
 use crate::ui::effect::{MoonrakerRequest, UiEffect};
 use crate::ui::render_diff::render_diff;
 use crate::ui::render_full::render_full_target;
 use crate::ui::render_target::{RenderTarget, resolve_render_target};
-use crate::ui::route::resolve_touch;
+use crate::ui::route::route_touch;
 
 /// Application core.
 ///
@@ -75,18 +77,36 @@ impl AppRunner {
             }
 
             HmiEvent::Touch { page, component } => {
-                let action = resolve_touch(page, component);
-                let effects = handle_action(&mut self.state, action);
-
-                for effect in effects {
-                    self.execute_effect(effect)?;
-                }
+                self.handle_touch(page, component);
             }
 
             _ => {}
         }
 
         Ok(())
+    }
+
+    fn handle_touch(&mut self, page: u8, component: u8) {
+        let intent = route_touch(page, component);
+
+        if intent_is_blocked_by_printer_state(&self.state, &intent) {
+            tracing::debug!(
+                ?intent,
+                printer_status = ?self.state.printer.status,
+                "UI intent blocked by printer state"
+            );
+            return;
+        }
+
+        let old_state = self.state.clone();
+
+        apply_hmi_intent(&mut self.state, &intent);
+
+        self.moonraker_requests
+            .extend(moonraker_requests_for_intent(&self.state, &intent));
+
+        self.hmi_commands
+            .extend(render_diff(&old_state, &self.state));
     }
 
     fn render_startup_page(&mut self) -> Result<()> {
@@ -192,6 +212,8 @@ mod tests {
                 HmiCommand::value("n1", 0),
                 HmiCommand::value("n4", 0),
                 HmiCommand::value("n5", 0),
+                HmiCommand::picture("b5", 2),
+                HmiCommand::picture_pressed("b5", 2),
             ]
         );
     }
@@ -347,6 +369,21 @@ mod tests {
         assert_eq!(
             runner.moonraker_requests,
             vec![MoonrakerRequest::PausePrint]
+        );
+    }
+
+    #[test]
+    fn touch_print_component_6_requests_case_light_toggle() {
+        let mut runner = AppRunner::new();
+
+        runner
+            .handle_event(AppEvent::hmi(HmiEvent::touch(2, 6)))
+            .unwrap();
+
+        assert!(!runner.state.lights.case_light);
+        assert_eq!(
+            runner.moonraker_requests,
+            vec![MoonrakerRequest::SetCaseLight(true)]
         );
     }
 

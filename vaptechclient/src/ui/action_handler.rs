@@ -1,277 +1,278 @@
-use crate::app::state::{ActiveOperation, AppState, FanKind, MoveDistance, Page, PrinterStatus};
+use crate::app::state::{ActiveOperation, AppState, FanKind, Page, PrinterStatus};
 use crate::hmi::command::HmiCommand;
 use crate::ui::effect::{MoonrakerRequest, UiEffect};
+use crate::ui::intent::UiIntent;
 use crate::ui::render_target::resolve_render_target;
-use crate::ui::route::UiAction;
 
-/// Выполняет уже распознанное UI-действие.
+/// Проверяет, можно ли выполнять intent в текущем состоянии принтера.
 ///
-/// На входе нет сырых page/component: route.rs уже превратил их в UiAction.
-/// На выходе только эффекты, которые runtime потом доставит в HMI/Moonraker.
-pub fn handle_action(state: &mut AppState, action: UiAction) -> Vec<UiEffect> {
-    // Safety guard стоит здесь, а не в route: одно и то же действие может прийти
-    // с разных страниц, но правила безопасности зависят от состояния принтера.
-    if action_is_blocked_by_printer_state(state, &action) {
-        tracing::debug!(
-            ?action,
-            printer_status = ?state.printer.status,
-            "UI action blocked by printer state"
-        );
-        return Vec::new();
-    }
-
-    match action {
-        UiAction::ChangePage(page) => handle_change_page(state, page),
-
-        UiAction::MoveDistance1 => {
-            state.hmi.move_distance = MoveDistance::Mm1;
-            Vec::new()
-        }
-
-        UiAction::MoveDistance10 => {
-            state.hmi.move_distance = MoveDistance::Mm10;
-            Vec::new()
-        }
-
-        UiAction::MoveDistance30 => {
-            state.hmi.move_distance = MoveDistance::Mm30;
-            Vec::new()
-        }
-
-        UiAction::TogglePartFan => {
-            toggle_fan(state, FanKind::Part);
-            vec![UiEffect::Moonraker(MoonrakerRequest::SetPartFan(
-                state.fans.part.percent,
-            ))]
-        }
-
-        UiAction::ToggleSideFan => {
-            toggle_fan(state, FanKind::Side);
-            vec![UiEffect::Moonraker(MoonrakerRequest::SetSideFan(
-                state.fans.side.percent,
-            ))]
-        }
-
-        UiAction::ToggleFilterFan => {
-            toggle_fan(state, FanKind::Filter);
-            vec![UiEffect::Moonraker(MoonrakerRequest::SetFilterFan(
-                state.fans.filter.percent,
-            ))]
-        }
-
-        UiAction::HomeAllAxes => {
-            state.lock_navigation(ActiveOperation::Homing);
-
-            vec![UiEffect::gcode("G28")]
-        }
-
-        UiAction::PausePrint => {
-            vec![UiEffect::Moonraker(MoonrakerRequest::PausePrint)]
-        }
-
-        UiAction::ResumePrint => {
-            vec![UiEffect::Moonraker(MoonrakerRequest::ResumePrint)]
-        }
-
-        UiAction::StopPrint => {
-            vec![UiEffect::Moonraker(MoonrakerRequest::CancelPrint)]
-        }
-
-        UiAction::LoadFilament => {
-            state.lock_navigation(ActiveOperation::LoadFilament);
-
-            vec![UiEffect::gcode("LOAD_MATERIAL")]
-        }
-
-        UiAction::UnloadFilament => {
-            state.lock_navigation(ActiveOperation::UnloadFilament);
-
-            vec![UiEffect::gcode("UNLOAD_MATERIAL")]
-        }
-
-        UiAction::StartPrint => {
-            // Позже сюда добавим выбранный файл:
-            // MoonrakerRequest::StartPrint(filename)
-            Vec::new()
-        }
-
-        UiAction::UnknownTouch { .. } => Vec::new(),
-    }
-}
-
-fn action_is_blocked_by_printer_state(state: &AppState, action: &UiAction) -> bool {
+/// Блокировка находится здесь, а не в route: одно и то же намерение может
+/// прийти с разных страниц, но безопасность зависит от PrinterState.
+pub fn intent_is_blocked_by_printer_state(state: &AppState, intent: &UiIntent) -> bool {
     match state.printer.status {
-        PrinterStatus::Printing => is_printing_blocked_action(action),
-        PrinterStatus::Paused => is_paused_blocked_action(action),
+        PrinterStatus::Printing => is_printing_blocked_intent(intent),
+        PrinterStatus::Paused => is_paused_blocked_intent(intent),
         _ => false,
     }
 }
 
-fn is_printing_blocked_action(action: &UiAction) -> bool {
-    // Во время печати запрещаем все, что может двигать механику или запускать
-    // загрузку/выгрузку пластика. Настройки и файлы смотреть можно.
-    matches!(
-        action,
-        UiAction::ChangePage(Page::Calibration | Page::MoveTemp | Page::LoadUnload)
-            | UiAction::HomeAllAxes
-            | UiAction::LoadFilament
-            | UiAction::UnloadFilament
-    )
+/// Применяет только локальное HMI/process состояние.
+///
+/// Эта функция не создает MoonrakerRequest и не пишет в UART.
+pub fn apply_hmi_intent(state: &mut AppState, intent: &UiIntent) {
+    match intent {
+        UiIntent::Navigate(screen) => {
+            state.request_page(*screen);
+        }
+
+        UiIntent::SelectMoveDistance(distance) => {
+            state.hmi.move_distance = *distance;
+        }
+
+        UiIntent::HomeAllAxes => {
+            state.lock_navigation(ActiveOperation::Homing);
+        }
+
+        UiIntent::LoadFilament => {
+            state.lock_navigation(ActiveOperation::LoadFilament);
+        }
+
+        UiIntent::UnloadFilament => {
+            state.lock_navigation(ActiveOperation::UnloadFilament);
+        }
+
+        UiIntent::OpenPrintControls
+        | UiIntent::ToggleCaseLight
+        | UiIntent::ToggleFan(_)
+        | UiIntent::MoveAxis { .. }
+        | UiIntent::StartPrint
+        | UiIntent::PausePrint
+        | UiIntent::ResumePrint
+        | UiIntent::StopPrint
+        | UiIntent::UnknownTouch { .. } => {}
+    }
 }
 
-fn is_paused_blocked_action(action: &UiAction) -> bool {
-    // На паузе load/unload допустим, но homing/move/calibration все еще опасны.
-    matches!(
-        action,
-        UiAction::ChangePage(Page::Calibration | Page::MoveTemp) | UiAction::HomeAllAxes
-    )
+/// Превращает intent в запросы к Moonraker.
+///
+/// Функция читает actual state, но не меняет его. Например, fan/light toggles
+/// отправляют желаемое новое значение, а фактическое состояние должно вернуться
+/// позже через MoonrakerEvent и reducer.
+pub fn moonraker_requests_for_intent(state: &AppState, intent: &UiIntent) -> Vec<MoonrakerRequest> {
+    match intent {
+        UiIntent::ToggleCaseLight => {
+            vec![MoonrakerRequest::SetCaseLight(!state.lights.case_light)]
+        }
+
+        UiIntent::ToggleFan(fan) => {
+            let next = next_fan_percent(state, *fan);
+            match fan {
+                FanKind::Part => vec![MoonrakerRequest::SetPartFan(next)],
+                FanKind::Side => vec![MoonrakerRequest::SetSideFan(next)],
+                FanKind::Filter => vec![MoonrakerRequest::SetFilterFan(next)],
+            }
+        }
+
+        UiIntent::HomeAllAxes => vec![MoonrakerRequest::SendGcode("G28".to_string())],
+
+        UiIntent::MoveAxis { axis, distance } => {
+            vec![MoonrakerRequest::SendGcode(format!(
+                "G91\nG1 {axis}{distance:.3}\nG90"
+            ))]
+        }
+
+        UiIntent::LoadFilament => vec![MoonrakerRequest::SendGcode("LOAD_MATERIAL".to_string())],
+
+        UiIntent::UnloadFilament => {
+            vec![MoonrakerRequest::SendGcode("UNLOAD_MATERIAL".to_string())]
+        }
+
+        UiIntent::PausePrint => vec![MoonrakerRequest::PausePrint],
+        UiIntent::ResumePrint => vec![MoonrakerRequest::ResumePrint],
+        UiIntent::StopPrint => vec![MoonrakerRequest::CancelPrint],
+
+        UiIntent::Navigate(_)
+        | UiIntent::OpenPrintControls
+        | UiIntent::SelectMoveDistance(_)
+        | UiIntent::StartPrint
+        | UiIntent::UnknownTouch { .. } => Vec::new(),
+    }
 }
 
-fn handle_change_page(state: &mut AppState, page: Page) -> Vec<UiEffect> {
-    if !state.request_page(page) {
+/// Совместимая обертка для старого API.
+///
+/// Новый runtime использует `apply_hmi_intent` и
+/// `moonraker_requests_for_intent` отдельно, но unit tests и внешний код могут
+/// пока вызывать этот метод.
+pub fn handle_action(state: &mut AppState, intent: UiIntent) -> Vec<UiEffect> {
+    if intent_is_blocked_by_printer_state(state, &intent) {
+        tracing::debug!(
+            ?intent,
+            printer_status = ?state.printer.status,
+            "UI intent blocked by printer state"
+        );
         return Vec::new();
     }
 
-    vec![UiEffect::hmi(HmiCommand::page(
-        resolve_render_target(state).page_id(),
-    ))]
+    let old_target = resolve_render_target(state);
+    apply_hmi_intent(state, &intent);
+
+    let mut effects = Vec::new();
+    let new_target = resolve_render_target(state);
+    if old_target != new_target {
+        effects.push(UiEffect::hmi(HmiCommand::page(new_target.page_id())));
+    }
+
+    effects.extend(
+        moonraker_requests_for_intent(state, &intent)
+            .into_iter()
+            .map(UiEffect::Moonraker),
+    );
+
+    effects
 }
 
-fn toggle_fan(state: &mut AppState, fan: FanKind) {
+fn is_printing_blocked_intent(intent: &UiIntent) -> bool {
+    // Во время печати запрещаем все, что может двигать механику или запускать
+    // загрузку/выгрузку пластика. Настройки и файлы смотреть можно.
+    matches!(
+        intent,
+        UiIntent::Navigate(Page::Calibration | Page::MoveTemp | Page::LoadUnload)
+            | UiIntent::HomeAllAxes
+            | UiIntent::MoveAxis { .. }
+            | UiIntent::LoadFilament
+            | UiIntent::UnloadFilament
+    )
+}
+
+fn is_paused_blocked_intent(intent: &UiIntent) -> bool {
+    // На паузе load/unload допустим, но homing/move/calibration все еще опасны.
+    matches!(
+        intent,
+        UiIntent::Navigate(Page::Calibration | Page::MoveTemp)
+            | UiIntent::HomeAllAxes
+            | UiIntent::MoveAxis { .. }
+    )
+}
+
+fn next_fan_percent(state: &AppState, fan: FanKind) -> u8 {
     let current = match fan {
         FanKind::Part => state.fans.part.percent,
         FanKind::Side => state.fans.side.percent,
         FanKind::Filter => state.fans.filter.percent,
     };
 
-    let next = if current == 0 { 100 } else { 0 };
-
-    state.set_fan_percent(fan, next);
+    if current == 0 { 100 } else { 0 }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::app::state::MoveDistance;
+    use crate::ui::intent::Axis;
 
     #[test]
-    fn change_page_updates_state_and_returns_hmi_effect() {
+    fn navigate_updates_hmi_state_without_moonraker_request() {
         let mut state = AppState::default();
 
-        let effects = handle_action(&mut state, UiAction::ChangePage(Page::Settings));
+        apply_hmi_intent(&mut state, &UiIntent::Navigate(Page::Settings));
+        let requests = moonraker_requests_for_intent(&state, &UiIntent::Navigate(Page::Settings));
 
         assert_eq!(state.hmi.current_screen, Page::Settings);
-        assert_eq!(
-            effects,
-            vec![UiEffect::hmi(HmiCommand::page(Page::Settings.id()))]
-        );
+        assert!(requests.is_empty());
     }
 
     #[test]
-    fn change_page_is_blocked_when_navigation_locked() {
+    fn select_move_distance_updates_only_hmi_state() {
         let mut state = AppState::default();
 
-        state.lock_navigation(ActiveOperation::Calibration);
-
-        let effects = handle_action(&mut state, UiAction::ChangePage(Page::Settings));
-
-        assert_eq!(state.hmi.current_screen, Page::Home);
-        assert!(effects.is_empty());
-    }
-
-    #[test]
-    fn move_distance_1_updates_state_without_effects() {
-        let mut state = AppState::default();
-
-        let effects = handle_action(&mut state, UiAction::MoveDistance1);
+        apply_hmi_intent(&mut state, &UiIntent::SelectMoveDistance(MoveDistance::Mm1));
+        let requests =
+            moonraker_requests_for_intent(&state, &UiIntent::SelectMoveDistance(MoveDistance::Mm1));
 
         assert_eq!(state.hmi.move_distance, MoveDistance::Mm1);
-        assert!(effects.is_empty());
+        assert!(requests.is_empty());
     }
 
     #[test]
-    fn move_distance_10_updates_state_without_effects() {
+    fn toggle_part_fan_reads_actual_state_without_mutating_it() {
         let mut state = AppState::default();
 
-        state.hmi.move_distance = MoveDistance::Mm1;
-
-        let effects = handle_action(&mut state, UiAction::MoveDistance10);
-
-        assert_eq!(state.hmi.move_distance, MoveDistance::Mm10);
-        assert!(effects.is_empty());
-    }
-
-    #[test]
-    fn move_distance_30_updates_state_without_effects() {
-        let mut state = AppState::default();
-
-        let effects = handle_action(&mut state, UiAction::MoveDistance30);
-
-        assert_eq!(state.hmi.move_distance, MoveDistance::Mm30);
-        assert!(effects.is_empty());
-    }
-
-    #[test]
-    fn toggle_part_fan_returns_moonraker_effect() {
-        let mut state = AppState::default();
-
-        let effects = handle_action(&mut state, UiAction::TogglePartFan);
-
-        assert_eq!(state.fans.part.percent, 100);
-        assert_eq!(
-            effects,
-            vec![UiEffect::Moonraker(MoonrakerRequest::SetPartFan(100))]
-        );
-    }
-
-    #[test]
-    fn toggle_part_fan_second_press_turns_it_off() {
-        let mut state = AppState::default();
-
-        handle_action(&mut state, UiAction::TogglePartFan);
-        let effects = handle_action(&mut state, UiAction::TogglePartFan);
+        let requests = moonraker_requests_for_intent(&state, &UiIntent::ToggleFan(FanKind::Part));
 
         assert_eq!(state.fans.part.percent, 0);
+        assert_eq!(requests, vec![MoonrakerRequest::SetPartFan(100)]);
+
+        state.fans.part.percent = 100;
+        let requests = moonraker_requests_for_intent(&state, &UiIntent::ToggleFan(FanKind::Part));
+
+        assert_eq!(state.fans.part.percent, 100);
+        assert_eq!(requests, vec![MoonrakerRequest::SetPartFan(0)]);
+    }
+
+    #[test]
+    fn toggle_side_and_filter_fans_create_requests() {
+        let state = AppState::default();
+
         assert_eq!(
-            effects,
-            vec![UiEffect::Moonraker(MoonrakerRequest::SetPartFan(0))]
+            moonraker_requests_for_intent(&state, &UiIntent::ToggleFan(FanKind::Side)),
+            vec![MoonrakerRequest::SetSideFan(100)]
+        );
+        assert_eq!(
+            moonraker_requests_for_intent(&state, &UiIntent::ToggleFan(FanKind::Filter)),
+            vec![MoonrakerRequest::SetFilterFan(100)]
         );
     }
 
     #[test]
-    fn toggle_side_fan_returns_moonraker_effect() {
+    fn toggle_case_light_reads_actual_state_without_mutating_it() {
         let mut state = AppState::default();
 
-        let effects = handle_action(&mut state, UiAction::ToggleSideFan);
+        let requests = moonraker_requests_for_intent(&state, &UiIntent::ToggleCaseLight);
 
-        assert_eq!(state.fans.side.percent, 100);
-        assert_eq!(
-            effects,
-            vec![UiEffect::Moonraker(MoonrakerRequest::SetSideFan(100))]
-        );
+        assert!(!state.lights.case_light);
+        assert_eq!(requests, vec![MoonrakerRequest::SetCaseLight(true)]);
+
+        state.lights.case_light = true;
+        let requests = moonraker_requests_for_intent(&state, &UiIntent::ToggleCaseLight);
+
+        assert!(state.lights.case_light);
+        assert_eq!(requests, vec![MoonrakerRequest::SetCaseLight(false)]);
     }
 
     #[test]
-    fn toggle_filter_fan_returns_moonraker_effect() {
+    fn home_all_axes_locks_navigation_and_returns_gcode_request() {
         let mut state = AppState::default();
 
-        let effects = handle_action(&mut state, UiAction::ToggleFilterFan);
-
-        assert_eq!(state.fans.filter.percent, 100);
-        assert_eq!(
-            effects,
-            vec![UiEffect::Moonraker(MoonrakerRequest::SetFilterFan(100))]
-        );
-    }
-
-    #[test]
-    fn home_all_axes_locks_navigation_and_returns_gcode_effect() {
-        let mut state = AppState::default();
-
-        let effects = handle_action(&mut state, UiAction::HomeAllAxes);
+        apply_hmi_intent(&mut state, &UiIntent::HomeAllAxes);
+        let requests = moonraker_requests_for_intent(&state, &UiIntent::HomeAllAxes);
 
         assert!(state.hmi.navigation_locked);
         assert_eq!(state.process.active_operation, ActiveOperation::Homing);
-        assert_eq!(effects, vec![UiEffect::gcode("G28")]);
+        assert_eq!(
+            requests,
+            vec![MoonrakerRequest::SendGcode("G28".to_string())]
+        );
+    }
+
+    #[test]
+    fn move_axis_returns_relative_move_gcode() {
+        let state = AppState::default();
+
+        let requests = moonraker_requests_for_intent(
+            &state,
+            &UiIntent::MoveAxis {
+                axis: Axis::Y,
+                distance: -10.0,
+            },
+        );
+
+        assert_eq!(
+            requests,
+            vec![MoonrakerRequest::SendGcode(
+                "G91\nG1 Y-10.000\nG90".to_string()
+            )]
+        );
     }
 
     #[test]
@@ -280,10 +281,10 @@ mod tests {
         state.printer.status = PrinterStatus::Printing;
 
         for page in [Page::Calibration, Page::MoveTemp, Page::LoadUnload] {
-            let effects = handle_action(&mut state, UiAction::ChangePage(page));
-
-            assert_eq!(state.hmi.current_screen, Page::Home);
-            assert!(effects.is_empty());
+            assert!(intent_is_blocked_by_printer_state(
+                &state,
+                &UiIntent::Navigate(page)
+            ));
         }
     }
 
@@ -292,38 +293,31 @@ mod tests {
         let mut state = AppState::default();
         state.printer.status = PrinterStatus::Printing;
 
-        let effects = handle_action(&mut state, UiAction::ChangePage(Page::Settings));
-
-        assert_eq!(state.hmi.current_screen, Page::Settings);
-        assert_eq!(
-            effects,
-            vec![UiEffect::hmi(HmiCommand::page(Page::Settings.id()))]
-        );
-
-        let effects = handle_action(&mut state, UiAction::ChangePage(Page::Files));
-
-        assert_eq!(state.hmi.current_screen, Page::Files);
-        assert_eq!(
-            effects,
-            vec![UiEffect::hmi(HmiCommand::page(Page::Files.id()))]
-        );
+        assert!(!intent_is_blocked_by_printer_state(
+            &state,
+            &UiIntent::Navigate(Page::Settings)
+        ));
+        assert!(!intent_is_blocked_by_printer_state(
+            &state,
+            &UiIntent::Navigate(Page::Files)
+        ));
     }
 
     #[test]
-    fn printing_blocks_homing_and_filament_commands() {
+    fn printing_blocks_homing_movement_and_filament_commands() {
         let mut state = AppState::default();
         state.printer.status = PrinterStatus::Printing;
 
-        for action in [
-            UiAction::HomeAllAxes,
-            UiAction::LoadFilament,
-            UiAction::UnloadFilament,
+        for intent in [
+            UiIntent::HomeAllAxes,
+            UiIntent::MoveAxis {
+                axis: Axis::X,
+                distance: 10.0,
+            },
+            UiIntent::LoadFilament,
+            UiIntent::UnloadFilament,
         ] {
-            let effects = handle_action(&mut state, action);
-
-            assert_eq!(state.process.active_operation, ActiveOperation::None);
-            assert!(!state.hmi.navigation_locked);
-            assert!(effects.is_empty());
+            assert!(intent_is_blocked_by_printer_state(&state, &intent));
         }
     }
 
@@ -332,102 +326,100 @@ mod tests {
         let mut state = AppState::default();
         state.printer.status = PrinterStatus::Paused;
 
-        let effects = handle_action(&mut state, UiAction::ChangePage(Page::Calibration));
+        assert!(intent_is_blocked_by_printer_state(
+            &state,
+            &UiIntent::Navigate(Page::Calibration)
+        ));
+        assert!(intent_is_blocked_by_printer_state(
+            &state,
+            &UiIntent::Navigate(Page::MoveTemp)
+        ));
+        assert!(!intent_is_blocked_by_printer_state(
+            &state,
+            &UiIntent::Navigate(Page::LoadUnload)
+        ));
+    }
 
-        assert_eq!(state.hmi.current_screen, Page::Home);
-        assert!(effects.is_empty());
+    #[test]
+    fn print_control_intents_return_moonraker_requests() {
+        let state = AppState::default();
 
-        let effects = handle_action(&mut state, UiAction::ChangePage(Page::MoveTemp));
-
-        assert_eq!(state.hmi.current_screen, Page::Home);
-        assert!(effects.is_empty());
-
-        let effects = handle_action(&mut state, UiAction::ChangePage(Page::LoadUnload));
-
-        assert_eq!(state.hmi.current_screen, Page::LoadUnload);
         assert_eq!(
-            effects,
-            vec![UiEffect::hmi(HmiCommand::page(Page::LoadUnload.id()))]
+            moonraker_requests_for_intent(&state, &UiIntent::PausePrint),
+            vec![MoonrakerRequest::PausePrint]
+        );
+        assert_eq!(
+            moonraker_requests_for_intent(&state, &UiIntent::ResumePrint),
+            vec![MoonrakerRequest::ResumePrint]
+        );
+        assert_eq!(
+            moonraker_requests_for_intent(&state, &UiIntent::StopPrint),
+            vec![MoonrakerRequest::CancelPrint]
         );
     }
 
     #[test]
-    fn pause_print_returns_moonraker_effect() {
+    fn load_unload_lock_navigation_and_return_gcode() {
         let mut state = AppState::default();
 
-        let effects = handle_action(&mut state, UiAction::PausePrint);
-
-        assert_eq!(
-            effects,
-            vec![UiEffect::Moonraker(MoonrakerRequest::PausePrint)]
-        );
-    }
-
-    #[test]
-    fn resume_print_returns_moonraker_effect() {
-        let mut state = AppState::default();
-
-        let effects = handle_action(&mut state, UiAction::ResumePrint);
-
-        assert_eq!(
-            effects,
-            vec![UiEffect::Moonraker(MoonrakerRequest::ResumePrint)]
-        );
-    }
-
-    #[test]
-    fn stop_print_returns_cancel_effect() {
-        let mut state = AppState::default();
-
-        let effects = handle_action(&mut state, UiAction::StopPrint);
-
-        assert_eq!(
-            effects,
-            vec![UiEffect::Moonraker(MoonrakerRequest::CancelPrint)]
-        );
-    }
-
-    #[test]
-    fn load_filament_locks_navigation_and_returns_gcode() {
-        let mut state = AppState::default();
-
-        let effects = handle_action(&mut state, UiAction::LoadFilament);
-
+        apply_hmi_intent(&mut state, &UiIntent::LoadFilament);
         assert_eq!(
             state.process.active_operation,
             ActiveOperation::LoadFilament
         );
-        assert!(state.hmi.navigation_locked);
-        assert_eq!(effects, vec![UiEffect::gcode("LOAD_MATERIAL")]);
-    }
+        assert_eq!(
+            moonraker_requests_for_intent(&state, &UiIntent::LoadFilament),
+            vec![MoonrakerRequest::SendGcode("LOAD_MATERIAL".to_string())]
+        );
 
-    #[test]
-    fn unload_filament_locks_navigation_and_returns_gcode() {
-        let mut state = AppState::default();
+        state.unlock_navigation();
 
-        let effects = handle_action(&mut state, UiAction::UnloadFilament);
-
+        apply_hmi_intent(&mut state, &UiIntent::UnloadFilament);
         assert_eq!(
             state.process.active_operation,
             ActiveOperation::UnloadFilament
         );
-        assert!(state.hmi.navigation_locked);
-        assert_eq!(effects, vec![UiEffect::gcode("UNLOAD_MATERIAL")]);
+        assert_eq!(
+            moonraker_requests_for_intent(&state, &UiIntent::UnloadFilament),
+            vec![MoonrakerRequest::SendGcode("UNLOAD_MATERIAL".to_string())]
+        );
     }
 
     #[test]
     fn unknown_touch_does_nothing() {
         let mut state = AppState::default();
 
-        let effects = handle_action(
+        apply_hmi_intent(
             &mut state,
-            UiAction::UnknownTouch {
+            &UiIntent::UnknownTouch {
                 page: 99,
                 component: 88,
             },
         );
 
         assert_eq!(state, AppState::default());
-        assert!(effects.is_empty());
+        assert!(
+            moonraker_requests_for_intent(
+                &state,
+                &UiIntent::UnknownTouch {
+                    page: 99,
+                    component: 88,
+                },
+            )
+            .is_empty()
+        );
+    }
+
+    #[test]
+    fn handle_action_wrapper_keeps_navigation_effect_for_compatibility() {
+        let mut state = AppState::default();
+
+        let effects = handle_action(&mut state, UiIntent::Navigate(Page::Settings));
+
+        assert_eq!(state.hmi.current_screen, Page::Settings);
+        assert_eq!(
+            effects,
+            vec![UiEffect::hmi(HmiCommand::page(Page::Settings.id()))]
+        );
     }
 }

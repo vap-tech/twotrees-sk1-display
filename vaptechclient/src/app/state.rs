@@ -4,6 +4,7 @@ pub struct AppState {
     pub printer: PrinterState,
     pub temperatures: TemperatureState,
     pub fans: FanState,
+    pub lights: LightState,
     pub hmi: HmiState,
     pub process: ProcessState,
     pub print: PrintState,
@@ -19,6 +20,7 @@ impl Default for AppState {
             printer: PrinterState::default(),
             temperatures: TemperatureState::default(),
             fans: FanState::default(),
+            lights: LightState::default(),
             hmi: HmiState::default(),
             process: ProcessState::default(),
             print: PrintState::default(),
@@ -145,6 +147,11 @@ impl Default for FanSpeed {
     fn default() -> Self {
         Self { percent: 0 }
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct LightState {
+    pub case_light: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

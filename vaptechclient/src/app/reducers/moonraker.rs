@@ -61,6 +61,10 @@ pub fn reduce_moonraker_event(state: &mut AppState, event: MoonrakerEvent) {
             );
         }
 
+        MoonrakerEvent::CaseLightChanged(enabled) => {
+            state.lights.case_light = enabled;
+        }
+
         MoonrakerEvent::FileListChanged
         | MoonrakerEvent::GcodeResponse(_)
         | MoonrakerEvent::Error(_)
@@ -337,6 +341,19 @@ mod tests {
 
         assert_eq!(state.temperatures.bed.current, 50.0);
         assert_eq!(state.temperatures.bed.target, 60.0);
+    }
+
+    #[test]
+    fn case_light_event_updates_actual_state() {
+        let mut state = AppState::default();
+
+        reduce_moonraker_event(&mut state, MoonrakerEvent::CaseLightChanged(true));
+
+        assert!(state.lights.case_light);
+
+        reduce_moonraker_event(&mut state, MoonrakerEvent::CaseLightChanged(false));
+
+        assert!(!state.lights.case_light);
     }
 
     #[test]

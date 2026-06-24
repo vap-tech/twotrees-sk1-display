@@ -1,5 +1,6 @@
 use crate::app::state::{AppState, PrinterStatus};
 use crate::hmi::command::HmiCommand;
+use crate::ui::components::render_case_light_icon;
 use crate::ui::render_target::{HomeMode, RenderTarget, resolve_render_target};
 
 /// Полная отрисовка текущей страницы.
@@ -25,12 +26,19 @@ pub fn render_full_target(target: RenderTarget, state: &AppState) -> Vec<HmiComm
 }
 
 fn render_home_full(state: &AppState) -> Vec<HmiCommand> {
-    vec![
+    let mut commands = vec![
         HmiCommand::value("n0", round_temperature(state.temperatures.nozzle.current)),
         HmiCommand::value("n1", round_temperature(state.temperatures.nozzle.target)),
         HmiCommand::value("n4", round_temperature(state.temperatures.bed.current)),
         HmiCommand::value("n5", round_temperature(state.temperatures.bed.target)),
-    ]
+    ];
+
+    commands.extend(render_case_light_icon(
+        RenderTarget::Home(HomeMode::Idle),
+        state.lights.case_light,
+    ));
+
+    commands
 }
 
 fn render_move_temp_full(state: &AppState) -> Vec<HmiCommand> {
@@ -49,7 +57,7 @@ fn render_print_full(state: &AppState) -> Vec<HmiCommand> {
     let (pause_pic, pause_pressed_pic) = print_pause_button_pics(state.printer.status);
     let filename = state.print.filename.as_deref().unwrap_or("");
 
-    vec![
+    let mut commands = vec![
         // Пока thumbnails не подключены, скрываем cp0 и рисуем только поля
         // печати. Базовая wifi-иконка нужна, чтобы не оставался мусор с Home.
         HmiCommand::picture("Print_Trun_1.p0", 67),
@@ -72,7 +80,14 @@ fn render_print_full(state: &AppState) -> Vec<HmiCommand> {
         HmiCommand::visible("cp0", false),
         HmiCommand::picture("b5", pause_pic),
         HmiCommand::picture_pressed("b5", pause_pressed_pic),
-    ]
+    ];
+
+    commands.extend(render_case_light_icon(
+        RenderTarget::Print,
+        state.lights.case_light,
+    ));
+
+    commands
 }
 
 fn render_settings_full(_state: &AppState) -> Vec<HmiCommand> {
@@ -128,6 +143,8 @@ mod tests {
                 HmiCommand::value("n1", 220),
                 HmiCommand::value("n4", 60),
                 HmiCommand::value("n5", 60),
+                HmiCommand::picture("b5", 2),
+                HmiCommand::picture_pressed("b5", 2),
             ]
         );
     }
@@ -187,8 +204,23 @@ mod tests {
                 HmiCommand::visible("cp0", false),
                 HmiCommand::picture("b5", 4),
                 HmiCommand::picture_pressed("b5", 5),
+                HmiCommand::picture("b6", 2),
+                HmiCommand::picture_pressed("b6", 2),
             ]
         );
+    }
+
+    #[test]
+    fn render_print_full_includes_case_light_icon() {
+        let mut state = AppState::default();
+
+        state.set_page(Page::Printing);
+        state.lights.case_light = true;
+
+        let commands = render_full(&state);
+
+        assert!(commands.contains(&HmiCommand::picture("b6", 3)));
+        assert!(commands.contains(&HmiCommand::picture_pressed("b6", 3)));
     }
 
     #[test]

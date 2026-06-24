@@ -1,5 +1,6 @@
 use crate::app::state::{AppState, PrinterStatus};
 use crate::hmi::command::HmiCommand;
+use crate::ui::components::render_case_light_icon;
 use crate::ui::render_full::render_full_target;
 use crate::ui::render_target::{HomeMode, RenderTarget, resolve_render_target};
 
@@ -19,15 +20,19 @@ pub fn render_diff(old: &AppState, new: &AppState) -> Vec<HmiCommand> {
     }
 
     match new_target {
-        RenderTarget::Home(HomeMode::Idle) => render_home_diff(old, new),
+        RenderTarget::Home(HomeMode::Idle) => render_home_diff(old, new, new_target),
         RenderTarget::Home(HomeMode::Printing) | RenderTarget::Print => render_print_diff(old, new),
         RenderTarget::MoveTemp => render_move_temp_diff(old, new),
         _ => Vec::new(),
     }
 }
 
-fn render_home_diff(old: &AppState, new: &AppState) -> Vec<HmiCommand> {
-    render_temperature_diff(old, new)
+fn render_home_diff(old: &AppState, new: &AppState, target: RenderTarget) -> Vec<HmiCommand> {
+    let mut commands = render_temperature_diff(old, new);
+
+    commands.extend(render_case_light_icon_diff(old, new, target));
+
+    commands
 }
 
 fn render_move_temp_diff(old: &AppState, new: &AppState) -> Vec<HmiCommand> {
@@ -62,6 +67,7 @@ fn render_print_diff(old: &AppState, new: &AppState) -> Vec<HmiCommand> {
     push_elapsed_time_diff(&mut commands, old, new);
     push_remaining_time_diff(&mut commands, old, new);
     push_print_button_diff(&mut commands, old, new);
+    commands.extend(render_case_light_icon_diff(old, new, RenderTarget::Print));
 
     commands
 }
@@ -137,6 +143,18 @@ fn push_print_button_diff(commands: &mut Vec<HmiCommand>, old: &AppState, new: &
 
     commands.push(HmiCommand::picture("b5", pic));
     commands.push(HmiCommand::picture_pressed("b5", pressed_pic));
+}
+
+fn render_case_light_icon_diff(
+    old: &AppState,
+    new: &AppState,
+    target: RenderTarget,
+) -> Vec<HmiCommand> {
+    if old.lights.case_light == new.lights.case_light {
+        return Vec::new();
+    }
+
+    render_case_light_icon(target, new.lights.case_light)
 }
 
 fn render_temperature_diff(old: &AppState, new: &AppState) -> Vec<HmiCommand> {
@@ -261,6 +279,26 @@ mod tests {
         let commands = render_diff(&old, &new);
 
         assert_eq!(commands, vec![HmiCommand::value("n0", 216)]);
+    }
+
+    #[test]
+    fn same_home_page_case_light_change_updates_icon() {
+        let mut old = AppState::default();
+        old.set_page(Page::Home);
+        old.lights.case_light = false;
+
+        let mut new = old.clone();
+        new.lights.case_light = true;
+
+        let commands = render_diff(&old, &new);
+
+        assert_eq!(
+            commands,
+            vec![
+                HmiCommand::picture("b5", 3),
+                HmiCommand::picture_pressed("b5", 3),
+            ]
+        );
     }
 
     #[test]
@@ -438,6 +476,26 @@ mod tests {
             vec![
                 HmiCommand::picture("b5", 5),
                 HmiCommand::picture_pressed("b5", 4),
+            ]
+        );
+    }
+
+    #[test]
+    fn same_print_page_case_light_change_updates_icon() {
+        let mut old = AppState::default();
+        old.set_page(Page::Printing);
+        old.lights.case_light = false;
+
+        let mut new = old.clone();
+        new.lights.case_light = true;
+
+        let commands = render_diff(&old, &new);
+
+        assert_eq!(
+            commands,
+            vec![
+                HmiCommand::picture("b6", 3),
+                HmiCommand::picture_pressed("b6", 3),
             ]
         );
     }

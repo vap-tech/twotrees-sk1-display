@@ -7,6 +7,7 @@ use crate::app::state::Page;
 use crate::hmi::command::HmiCommand;
 use crate::thumbnail::cache::{ThumbnailCache, ThumbnailState};
 use crate::thumbnail::{ThumbnailKey, ThumbnailRequest, ThumbnailResult, ThumbnailTarget};
+use crate::ui::effect::MoonrakerRequest;
 use crate::ui::render_target::resolve_render_target;
 
 /// Центральный async loop приложения.
@@ -20,6 +21,7 @@ pub struct Runtime {
     thumbnail_cache: ThumbnailCache,
     thumbnail_request_tx: Option<mpsc::Sender<ThumbnailRequest>>,
     thumbnail_result_rx: Option<mpsc::Receiver<ThumbnailResult>>,
+    moonraker_request_tx: Option<mpsc::Sender<MoonrakerRequest>>,
 }
 
 impl Runtime {
@@ -35,6 +37,7 @@ impl Runtime {
             thumbnail_cache: ThumbnailCache::new(),
             thumbnail_request_tx: None,
             thumbnail_result_rx: None,
+            moonraker_request_tx: None,
         }
     }
 
@@ -52,7 +55,16 @@ impl Runtime {
             thumbnail_cache: ThumbnailCache::new(),
             thumbnail_request_tx: Some(thumbnail_request_tx),
             thumbnail_result_rx: Some(thumbnail_result_rx),
+            moonraker_request_tx: None,
         }
+    }
+
+    pub fn with_moonraker_requests(
+        mut self,
+        moonraker_request_tx: mpsc::Sender<MoonrakerRequest>,
+    ) -> Self {
+        self.moonraker_request_tx = Some(moonraker_request_tx);
+        self
     }
 
     pub async fn run(self) -> Result<()> {
@@ -116,13 +128,34 @@ impl Runtime {
             self.handle_thumbnail_request(request).await?;
         }
 
-        // Пока MoonrakerRequest намеренно не подключены к websocket-клиенту:
-        // на живой длинной печати это гарантирует read-only режим.
         for request in self.runner.drain_moonraker_requests() {
-            tracing::debug!(?request, "moonraker request queued");
+            self.handle_moonraker_request(request).await?;
         }
 
         Ok(())
+    }
+
+    async fn handle_moonraker_request(&self, request: MoonrakerRequest) -> Result<()> {
+        if !matches!(request, MoonrakerRequest::SetCaseLight(_)) {
+            tracing::debug!(
+                ?request,
+                "moonraker request dropped: only SetCaseLight is enabled"
+            );
+            return Ok(());
+        }
+
+        let Some(request_tx) = &self.moonraker_request_tx else {
+            tracing::debug!(
+                ?request,
+                "moonraker request queued but client is not configured"
+            );
+            return Ok(());
+        };
+
+        request_tx
+            .send(request)
+            .await
+            .context("failed to queue Moonraker request")
     }
 
     async fn handle_thumbnail_request(&mut self, request: ThumbnailRequest) -> Result<()> {
@@ -226,7 +259,7 @@ mod tests {
     #[tokio::test]
     async fn hmi_startup_event_queues_home_page_command() {
         let (app_event_tx, app_event_rx) = mpsc::channel(4);
-        let (hmi_command_tx, mut hmi_command_rx) = mpsc::channel(4);
+        let (hmi_command_tx, mut hmi_command_rx) = mpsc::channel(16);
 
         let runtime = Runtime::new(AppRunner::new(), app_event_rx, hmi_command_tx);
         let runtime_handle = tokio::spawn(runtime.run());

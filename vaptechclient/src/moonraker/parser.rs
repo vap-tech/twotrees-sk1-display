@@ -55,6 +55,7 @@ fn parse_notify_status_update(json: &Value, events: &mut Vec<MoonrakerEvent>) {
 fn parse_status_object(status: &Value, events: &mut Vec<MoonrakerEvent>) {
     parse_heater(status, "extruder", HeaterKind::Nozzle, events);
     parse_heater(status, "heater_bed", HeaterKind::Bed, events);
+    parse_case_light(status, events);
     parse_print_stats(status, events);
     parse_print_progress(status, events);
 }
@@ -77,6 +78,16 @@ fn parse_heater(status: &Value, key: &str, heater: HeaterKind, events: &mut Vec<
             current,
             target,
         });
+    }
+}
+
+fn parse_case_light(status: &Value, events: &mut Vec<MoonrakerEvent>) {
+    let Some(caselight) = status.get("output_pin caselight") else {
+        return;
+    };
+
+    if let Some(value) = caselight.get("value").and_then(Value::as_f64) {
+        events.push(MoonrakerEvent::CaseLightChanged(value > 0.5));
     }
 }
 
@@ -315,6 +326,24 @@ mod tests {
                 target: Some(60.0),
             }]
         );
+    }
+
+    #[test]
+    fn parses_case_light_status_update() {
+        let raw = r#"{
+            "method": "notify_status_update",
+            "params": [
+                {
+                    "output_pin caselight": {
+                        "value": 1.0
+                    }
+                }
+            ]
+        }"#;
+
+        let events = parse_moonraker_message(raw).unwrap();
+
+        assert_eq!(events, vec![MoonrakerEvent::CaseLightChanged(true)]);
     }
 
     #[test]

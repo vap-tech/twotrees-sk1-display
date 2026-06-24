@@ -42,6 +42,7 @@ async fn main() -> Result<()> {
     let (hmi_event_tx, mut hmi_event_rx) = mpsc::channel(config.tx.queue_size);
     let (thumbnail_request_tx, thumbnail_request_rx) = mpsc::channel(config.tx.queue_size);
     let (thumbnail_result_tx, thumbnail_result_rx) = mpsc::channel(config.tx.queue_size);
+    let (moonraker_request_tx, moonraker_request_rx) = mpsc::channel(config.tx.queue_size);
 
     let app_event_tx_from_hmi = app_event_tx.clone();
     let touch_log_level = config.log.touch_level.clone();
@@ -87,9 +88,11 @@ async fn main() -> Result<()> {
         }
     });
 
-    // Moonraker client сейчас read-only: подписывается на статусы и переводит
-    // JSON-RPC сообщения в AppEvent. Управляющих команд в Moonraker отсюда нет.
-    let moonraker_client = MoonrakerClient::new(config.moonraker_ws_url(), app_event_tx.clone());
+    // Moonraker client подписывается на статусы и принимает ограниченный
+    // набор управляющих запросов. Сейчас write-path включен только для
+    // caselight, остальные MoonrakerRequest runtime не пересылает.
+    let moonraker_client = MoonrakerClient::new(config.moonraker_ws_url(), app_event_tx.clone())
+        .with_request_rx(moonraker_request_rx);
 
     tokio::spawn(async move {
         if let Err(error) = moonraker_client.run().await {
@@ -104,6 +107,7 @@ async fn main() -> Result<()> {
         thumbnail_request_tx,
         thumbnail_result_rx,
     )
+    .with_moonraker_requests(moonraker_request_tx)
     .run()
     .await?;
 

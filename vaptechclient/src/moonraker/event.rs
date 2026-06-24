@@ -27,6 +27,8 @@ pub enum MoonrakerEvent {
         target: Option<f32>,
     },
 
+    CaseLightChanged(bool),
+
     FileListChanged,
 
     GcodeResponse(String),

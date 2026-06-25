@@ -14,6 +14,8 @@ use crate::{
 
 const SUBSCRIBE_ID: u64 = 1;
 const FIRST_COMMAND_ID: u64 = 1000;
+const HEARTBEAT_IDLE_TIMEOUT: Duration = Duration::from_secs(10);
+const HEARTBEAT_RESPONSE_TIMEOUT: Duration = Duration::from_secs(2);
 
 /// Moonraker websocket client.
 ///
@@ -74,7 +76,11 @@ impl MoonrakerClient {
             .await
             .context("failed to send Moonraker object subscription")?;
 
+        let mut last_rx = time::Instant::now();
+
         loop {
+            let heartbeat_deadline = last_rx + HEARTBEAT_IDLE_TIMEOUT;
+
             tokio::select! {
                 message = websocket.next() => {
                     let Some(message) = message else {
@@ -82,19 +88,10 @@ impl MoonrakerClient {
                     };
 
                     let message = message.context("failed to read Moonraker websocket message")?;
+                    last_rx = time::Instant::now();
 
-                    match message {
-                        Message::Text(raw) => self.handle_raw_message(&raw).await?,
-                        Message::Binary(raw) => {
-                            let raw = String::from_utf8(raw).context("invalid UTF-8 Moonraker binary")?;
-                            self.handle_raw_message(&raw).await?;
-                        }
-                        Message::Ping(_) | Message::Pong(_) => {}
-                        Message::Close(frame) => {
-                            tracing::info!(?frame, "Moonraker websocket closed by peer");
-                            break;
-                        }
-                        Message::Frame(_) => {}
+                    if !self.handle_websocket_message(message).await? {
+                        break;
                     }
                 }
 
@@ -111,10 +108,55 @@ impl MoonrakerClient {
                             .context("failed to send Moonraker request")?;
                     }
                 }
+
+                _ = time::sleep_until(heartbeat_deadline) => {
+                    tracing::debug!(
+                        idle_ms = last_rx.elapsed().as_millis(),
+                        "Moonraker websocket idle; sending server.info heartbeat"
+                    );
+
+                    websocket
+                        .send(Message::Text(self.server_info_message()))
+                        .await
+                        .context("failed to send Moonraker heartbeat")?;
+
+                    let message = time::timeout(HEARTBEAT_RESPONSE_TIMEOUT, websocket.next())
+                        .await
+                        .context("Moonraker heartbeat timed out")?;
+
+                    let Some(message) = message else {
+                        break;
+                    };
+
+                    let message = message.context("failed to read Moonraker heartbeat response")?;
+                    last_rx = time::Instant::now();
+
+                    if !self.handle_websocket_message(message).await? {
+                        break;
+                    }
+                }
             }
         }
 
         Ok(())
+    }
+
+    async fn handle_websocket_message(&self, message: Message) -> Result<bool> {
+        match message {
+            Message::Text(raw) => self.handle_raw_message(&raw).await?,
+            Message::Binary(raw) => {
+                let raw = String::from_utf8(raw).context("invalid UTF-8 Moonraker binary")?;
+                self.handle_raw_message(&raw).await?;
+            }
+            Message::Ping(_) | Message::Pong(_) => {}
+            Message::Close(frame) => {
+                tracing::info!(?frame, "Moonraker websocket closed by peer");
+                return Ok(false);
+            }
+            Message::Frame(_) => {}
+        }
+
+        Ok(true)
     }
 
     fn request_message(&mut self, request: MoonrakerRequest) -> Option<String> {
@@ -205,6 +247,13 @@ impl MoonrakerClient {
                 None
             }
         }
+    }
+
+    fn server_info_message(&mut self) -> String {
+        let id = self.next_command_id;
+        self.next_command_id += 1;
+
+        jsonrpc_method_message(id, "server.info")
     }
 
     async fn handle_raw_message(&self, raw: &str) -> Result<()> {
@@ -353,5 +402,16 @@ mod tests {
         assert_eq!(resume["method"], "printer.print.resume");
         assert_eq!(resume["id"], 43);
         assert!(resume.get("params").is_none());
+    }
+
+    #[test]
+    fn heartbeat_uses_read_only_server_info_method() {
+        let message: Value =
+            serde_json::from_str(&jsonrpc_method_message(42, "server.info")).unwrap();
+
+        assert_eq!(message["jsonrpc"], "2.0");
+        assert_eq!(message["method"], "server.info");
+        assert_eq!(message["id"], 42);
+        assert!(message.get("params").is_none());
     }
 }

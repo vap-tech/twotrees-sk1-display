@@ -15,6 +15,8 @@ Moonraker/Klipper после перехода на ванильный Armbian.
 - Разбор входящих HMI-событий: startup `0x91`, touch, numeric input для ползунов.
 - Навигация по базовым экранам: Home, Print, Files, Fans, Settings/Network/Calibration.
 - Moonraker WebSocket subscribe и reducer состояния принтера.
+- Read-only WebSocket watchdog через `server.info`: если поток событий замолчал,
+  клиент проверяет соединение и сам уходит в reconnect.
 - Live-отрисовка температур сопла/стола, target values, прогресса печати и времени.
 - Автовосстановление экрана печати после init дисплея, если печать уже идёт.
 - Орка/G-code thumbnail pipeline: download через Moonraker, extract, TJC encode,
@@ -197,6 +199,15 @@ render_diff(old_state, new_state)
 - `heater_bed`
 - `toolhead`
 - `output_pin caselight`
+- `fan`
+- `fan_generic Side_fan`
+- `fan_generic Filter_fan`
+
+Moonraker client отслеживает время последнего входящего WebSocket frame. Если
+поток молчит дольше `10s`, клиент отправляет read-only heartbeat `server.info` и
+ждёт ответ до `2s`. Если ответа нет или запись/чтение падает, текущий WebSocket
+закрывается через ошибку, а внешний loop выполняет reconnect. Heartbeat не
+использует write-path принтера и не меняет состояние Klipper.
 
 ### Vendor mapping
 

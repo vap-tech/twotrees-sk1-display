@@ -24,6 +24,7 @@ pub enum UiIntent {
     UnloadFilament,
 
     StartPrint,
+    TogglePauseResumePrint,
     PausePrint,
     ResumePrint,
     StopPrint,

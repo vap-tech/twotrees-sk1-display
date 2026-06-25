@@ -230,6 +230,8 @@ fn moonraker_request_is_enabled(request: &MoonrakerRequest) -> bool {
     matches!(
         request,
         MoonrakerRequest::SetCaseLight(_)
+            | MoonrakerRequest::PausePrint
+            | MoonrakerRequest::ResumePrint
             | MoonrakerRequest::SetPartFan(_)
             | MoonrakerRequest::SetSideFan(_)
             | MoonrakerRequest::SetFilterFan(_)
@@ -264,6 +266,15 @@ mod tests {
         assert_eq!(hmi_command_rx.recv().await, Some(HmiCommand::page(0)));
 
         runtime_handle.await.unwrap().unwrap();
+    }
+
+    #[test]
+    fn runtime_enables_pause_resume_but_not_cancel() {
+        assert!(moonraker_request_is_enabled(&MoonrakerRequest::PausePrint));
+        assert!(moonraker_request_is_enabled(&MoonrakerRequest::ResumePrint));
+        assert!(!moonraker_request_is_enabled(
+            &MoonrakerRequest::CancelPrint
+        ));
     }
 
     #[tokio::test]

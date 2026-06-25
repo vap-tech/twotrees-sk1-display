@@ -369,6 +369,38 @@ mod tests {
     }
 
     #[test]
+    fn touch_print_component_5_pauses_when_printing() {
+        let mut runner = AppRunner::new();
+
+        runner.state.printer.status = PrinterStatus::Printing;
+
+        runner
+            .handle_event(AppEvent::hmi(HmiEvent::touch(2, 5)))
+            .unwrap();
+
+        assert_eq!(
+            runner.moonraker_requests,
+            vec![MoonrakerRequest::PausePrint]
+        );
+    }
+
+    #[test]
+    fn touch_print_component_5_resumes_when_paused() {
+        let mut runner = AppRunner::new();
+
+        runner.state.printer.status = PrinterStatus::Paused;
+
+        runner
+            .handle_event(AppEvent::hmi(HmiEvent::touch(2, 5)))
+            .unwrap();
+
+        assert_eq!(
+            runner.moonraker_requests,
+            vec![MoonrakerRequest::ResumePrint]
+        );
+    }
+
+    #[test]
     fn touch_print_component_6_requests_case_light_toggle() {
         let mut runner = AppRunner::new();
 

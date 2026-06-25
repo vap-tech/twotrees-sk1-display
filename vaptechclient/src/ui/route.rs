@@ -27,6 +27,7 @@ pub fn route_touch(page: u8, component: u8) -> UiIntent {
         // Print page
         (2, 1) => UiIntent::PausePrint,
         (2, 2) => UiIntent::StopPrint,
+        (2, 5) => UiIntent::TogglePauseResumePrint,
         (2, 6) => UiIntent::ToggleCaseLight,
         (2, 7) => UiIntent::Navigate(Page::Fans),
 
@@ -112,6 +113,11 @@ mod tests {
     }
 
     #[test]
+    fn print_component_5_toggles_pause_resume() {
+        assert_eq!(route_touch(2, 5), UiIntent::TogglePauseResumePrint);
+    }
+
+    #[test]
     fn print_component_7_goes_to_fans_page() {
         assert_eq!(route_touch(2, 7), UiIntent::Navigate(Page::Fans));
     }
@@ -166,6 +172,7 @@ mod tests {
     #[test]
     fn stop_is_global_stop_intent() {
         assert!(UiIntent::StopPrint.is_global_stop());
+        assert!(!UiIntent::TogglePauseResumePrint.is_global_stop());
         assert!(!UiIntent::PausePrint.is_global_stop());
     }
 }

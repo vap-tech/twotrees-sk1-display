@@ -49,6 +49,7 @@ pub fn apply_hmi_intent(state: &mut AppState, intent: &UiIntent) {
         | UiIntent::SetBedTarget { .. }
         | UiIntent::MoveAxis { .. }
         | UiIntent::StartPrint
+        | UiIntent::TogglePauseResumePrint
         | UiIntent::PausePrint
         | UiIntent::ResumePrint
         | UiIntent::StopPrint
@@ -101,6 +102,11 @@ pub fn moonraker_requests_for_intent(state: &AppState, intent: &UiIntent) -> Vec
             vec![MoonrakerRequest::SendGcode("UNLOAD_MATERIAL".to_string())]
         }
 
+        UiIntent::TogglePauseResumePrint => match state.printer.status {
+            PrinterStatus::Paused => vec![MoonrakerRequest::ResumePrint],
+            PrinterStatus::Printing => vec![MoonrakerRequest::PausePrint],
+            _ => Vec::new(),
+        },
         UiIntent::PausePrint => vec![MoonrakerRequest::PausePrint],
         UiIntent::ResumePrint => vec![MoonrakerRequest::ResumePrint],
         UiIntent::StopPrint => vec![MoonrakerRequest::CancelPrint],
@@ -387,7 +393,7 @@ mod tests {
 
     #[test]
     fn print_control_intents_return_moonraker_requests() {
-        let state = AppState::default();
+        let mut state = AppState::default();
 
         assert_eq!(
             moonraker_requests_for_intent(&state, &UiIntent::PausePrint),
@@ -400,6 +406,23 @@ mod tests {
         assert_eq!(
             moonraker_requests_for_intent(&state, &UiIntent::StopPrint),
             vec![MoonrakerRequest::CancelPrint]
+        );
+
+        assert_eq!(
+            moonraker_requests_for_intent(&state, &UiIntent::TogglePauseResumePrint),
+            Vec::<MoonrakerRequest>::new()
+        );
+
+        state.printer.status = PrinterStatus::Printing;
+        assert_eq!(
+            moonraker_requests_for_intent(&state, &UiIntent::TogglePauseResumePrint),
+            vec![MoonrakerRequest::PausePrint]
+        );
+
+        state.printer.status = PrinterStatus::Paused;
+        assert_eq!(
+            moonraker_requests_for_intent(&state, &UiIntent::TogglePauseResumePrint),
+            vec![MoonrakerRequest::ResumePrint]
         );
     }
 

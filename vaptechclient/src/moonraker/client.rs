@@ -179,6 +179,24 @@ impl MoonrakerClient {
                 Some(gcode_script_message(id, format!("M140 S{celsius}")))
             }
 
+            MoonrakerRequest::PausePrint => {
+                let id = self.next_command_id;
+                self.next_command_id += 1;
+
+                tracing::info!("sending pause print command to Moonraker");
+
+                Some(jsonrpc_method_message(id, "printer.print.pause"))
+            }
+
+            MoonrakerRequest::ResumePrint => {
+                let id = self.next_command_id;
+                self.next_command_id += 1;
+
+                tracing::info!("sending resume print command to Moonraker");
+
+                Some(jsonrpc_method_message(id, "printer.print.resume"))
+            }
+
             other => {
                 tracing::debug!(
                     ?other,
@@ -261,6 +279,15 @@ fn gcode_script_message(id: u64, script: impl Into<String>) -> String {
     .to_string()
 }
 
+fn jsonrpc_method_message(id: u64, method: &'static str) -> String {
+    json!({
+        "jsonrpc": "2.0",
+        "method": method,
+        "id": id
+    })
+    .to_string()
+}
+
 fn part_fan_gcode(percent: u8) -> String {
     let speed = ((percent.min(100) as u16 * 255) + 50) / 100;
 
@@ -308,5 +335,23 @@ mod tests {
 
         let message: Value = serde_json::from_str(&caselight_command_message(43, false)).unwrap();
         assert_eq!(message["params"]["script"], "SET_PIN PIN=caselight VALUE=0");
+    }
+
+    #[test]
+    fn print_control_commands_use_moonraker_print_methods() {
+        let pause: Value =
+            serde_json::from_str(&jsonrpc_method_message(42, "printer.print.pause")).unwrap();
+
+        assert_eq!(pause["jsonrpc"], "2.0");
+        assert_eq!(pause["method"], "printer.print.pause");
+        assert_eq!(pause["id"], 42);
+        assert!(pause.get("params").is_none());
+
+        let resume: Value =
+            serde_json::from_str(&jsonrpc_method_message(43, "printer.print.resume")).unwrap();
+
+        assert_eq!(resume["method"], "printer.print.resume");
+        assert_eq!(resume["id"], 43);
+        assert!(resume.get("params").is_none());
     }
 }

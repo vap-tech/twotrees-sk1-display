@@ -9,6 +9,29 @@ Moonraker/Klipper после перехода на ванильный Armbian.
 
 Не подключайте UART дисплея к `5V TTL`. Общую землю (`GND`) подключать обязательно.
 
+## Что уже работает
+
+- Запуск Rust-клиента `vaptechclient` с async UART service для штатного HMI-дисплея.
+- Разбор входящих HMI-событий: startup `0x91`, touch, numeric input для ползунов.
+- Навигация по базовым экранам: Home, Print, Files, Fans, Settings/Network/Calibration.
+- Moonraker WebSocket subscribe и reducer состояния принтера.
+- Live-отрисовка температур сопла/стола, target values, прогресса печати и времени.
+- Автовосстановление экрана печати после init дисплея, если печать уже идёт.
+- Орка/G-code thumbnail pipeline: download через Moonraker, extract, TJC encode,
+  cache, асинхронная доставка на page 2 и page 77.
+- Проверка актуальности thumbnail через `RenderTarget`, чтобы не залить старый
+  эскиз в уже сменившийся экран или слот файла.
+- Иконки подсветки и вентиляторов на странице печати обновляются от фактического
+  состояния Moonraker.
+- Управление подсветкой через `SET_PIN PIN=caselight`.
+- Управление тремя вентиляторами с HMI page 6: model/part fan, auxiliary/side fan,
+  case/filter fan.
+- Pause/resume печати с page 2 component 5: при печати отправляет pause, на паузе
+  отправляет resume.
+- Настраиваемый info-лог для touch/numeric HMI-событий без сырого UART hex.
+- Unit/integration tests покрывают parser, reducer, renderer, runtime, thumbnail
+  pipeline и print pipeline.
+
 ## Что есть в репозитории
 
 - `tools/display_uart_demo_host` - Python-демо/песочница для дисплея.
@@ -28,10 +51,10 @@ Moonraker/Klipper после перехода на ванильный Armbian.
 - renderer команд HMI;
 - thumbnail pipeline для Orca/G-code preview.
 
-Moonraker write-path включён точечно. Сейчас из UI обратно в принтер отправляется
-только безопасно заведённая команда подсветки (`SET_PIN PIN=caselight ...`).
-Остальные `MoonrakerRequest` пока намеренно отбрасываются runtime, чтобы новые
-кнопки не начали внезапно управлять принтером без явного подключения.
+Moonraker write-path включён точечно. Сейчас из UI обратно в принтер отправляются
+только явно разрешённые runtime команды: подсветка, вентиляторы, target
+температуры, pause/resume. Остальные `MoonrakerRequest` намеренно отбрасываются,
+чтобы новые кнопки не начали внезапно управлять принтером без явного подключения.
 
 ### Архитектура
 

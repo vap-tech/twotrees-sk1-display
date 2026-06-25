@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use serde_json::Value;
 
-use crate::moonraker::event::{HeaterKind, KlippyState, MoonrakerEvent, PrinterStatus};
+use crate::moonraker::event::{FanKind, HeaterKind, KlippyState, MoonrakerEvent, PrinterStatus};
 
 /// Разбирает одно JSON-RPC сообщение Moonraker в набор доменных событий.
 ///
@@ -56,6 +56,9 @@ fn parse_status_object(status: &Value, events: &mut Vec<MoonrakerEvent>) {
     parse_heater(status, "extruder", HeaterKind::Nozzle, events);
     parse_heater(status, "heater_bed", HeaterKind::Bed, events);
     parse_case_light(status, events);
+    parse_fan(status, "fan", FanKind::Part, events);
+    parse_fan(status, "fan_generic Side_fan", FanKind::Side, events);
+    parse_fan(status, "fan_generic Filter_fan", FanKind::Filter, events);
     parse_print_stats(status, events);
     parse_print_progress(status, events);
 }
@@ -88,6 +91,31 @@ fn parse_case_light(status: &Value, events: &mut Vec<MoonrakerEvent>) {
 
     if let Some(value) = caselight.get("value").and_then(Value::as_f64) {
         events.push(MoonrakerEvent::CaseLightChanged(value > 0.5));
+    }
+}
+
+fn parse_fan(status: &Value, key: &str, fan: FanKind, events: &mut Vec<MoonrakerEvent>) {
+    let Some(obj) = status.get(key) else {
+        return;
+    };
+
+    if let Some(speed) = obj.get("speed").and_then(Value::as_f64) {
+        events.push(MoonrakerEvent::FanChanged {
+            fan,
+            percent: speed_to_percent(speed),
+        });
+    }
+}
+
+fn speed_to_percent(speed: f64) -> u8 {
+    let percent = (speed * 100.0).round();
+
+    if percent < 0.0 {
+        0
+    } else if percent > 100.0 {
+        100
+    } else {
+        percent as u8
     }
 }
 
@@ -344,6 +372,46 @@ mod tests {
         let events = parse_moonraker_message(raw).unwrap();
 
         assert_eq!(events, vec![MoonrakerEvent::CaseLightChanged(true)]);
+    }
+
+    #[test]
+    fn parses_fan_status_update() {
+        let raw = r#"{
+            "method": "notify_status_update",
+            "params": [
+                {
+                    "fan": {
+                        "speed": 1.0
+                    },
+                    "fan_generic Side_fan": {
+                        "speed": 0.42
+                    },
+                    "fan_generic Filter_fan": {
+                        "speed": 0.0
+                    }
+                }
+            ]
+        }"#;
+
+        let events = parse_moonraker_message(raw).unwrap();
+
+        assert_eq!(
+            events,
+            vec![
+                MoonrakerEvent::FanChanged {
+                    fan: FanKind::Part,
+                    percent: 100,
+                },
+                MoonrakerEvent::FanChanged {
+                    fan: FanKind::Side,
+                    percent: 42,
+                },
+                MoonrakerEvent::FanChanged {
+                    fan: FanKind::Filter,
+                    percent: 0,
+                },
+            ]
+        );
     }
 
     #[test]

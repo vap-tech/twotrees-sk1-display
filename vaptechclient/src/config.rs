@@ -59,6 +59,9 @@ pub struct LogConfig {
 
     #[serde(default = "default_touch_log_level")]
     pub touch_level: String,
+
+    #[serde(default = "default_numeric_log_level")]
+    pub numeric_level: String,
 }
 
 impl Config {
@@ -124,5 +127,9 @@ fn default_log_level() -> String {
 }
 
 fn default_touch_log_level() -> String {
+    "debug".to_string()
+}
+
+fn default_numeric_log_level() -> String {
     "debug".to_string()
 }

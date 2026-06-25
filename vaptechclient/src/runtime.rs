@@ -3,10 +3,9 @@ use tokio::sync::mpsc;
 
 use crate::app::event::AppEvent;
 use crate::app::runner::AppRunner;
-use crate::app::state::Page;
 use crate::hmi::command::HmiCommand;
 use crate::thumbnail::cache::{ThumbnailCache, ThumbnailState};
-use crate::thumbnail::{ThumbnailKey, ThumbnailRequest, ThumbnailResult, ThumbnailTarget};
+use crate::thumbnail::{ThumbnailKey, ThumbnailRequest, ThumbnailResult};
 use crate::ui::effect::MoonrakerRequest;
 use crate::ui::render_target::resolve_render_target;
 
@@ -136,10 +135,10 @@ impl Runtime {
     }
 
     async fn handle_moonraker_request(&self, request: MoonrakerRequest) -> Result<()> {
-        if !matches!(request, MoonrakerRequest::SetCaseLight(_)) {
+        if !moonraker_request_is_enabled(&request) {
             tracing::debug!(
                 ?request,
-                "moonraker request dropped: only SetCaseLight is enabled"
+                "moonraker request dropped: command is not enabled"
             );
             return Ok(());
         }
@@ -223,28 +222,20 @@ impl Runtime {
     }
 
     fn thumbnail_is_current(&self, key: &ThumbnailKey) -> bool {
-        match key.target {
-            ThumbnailTarget::PrintPage => {
-                resolve_render_target(&self.runner.state).is_print_view()
-                    && self.runner.state.print.filename.as_deref() == Some(key.file_path.as_str())
-            }
-            ThumbnailTarget::FileSlot { slot } => {
-                self.runner.state.hmi.current_screen == Page::Files
-                    && self
-                        .runner
-                        .state
-                        .files
-                        .visible_file_at(slot)
-                        .map(|file| file.path.as_str())
-                        == Some(key.file_path.as_str())
-            }
-            ThumbnailTarget::PreviewPage => false,
-            ThumbnailTarget::ResultPage => {
-                resolve_render_target(&self.runner.state).is_result_view()
-                    && self.runner.state.print.filename.as_deref() == Some(key.file_path.as_str())
-            }
-        }
+        resolve_render_target(&self.runner.state).accepts_thumbnail(&self.runner.state, key)
     }
+}
+
+fn moonraker_request_is_enabled(request: &MoonrakerRequest) -> bool {
+    matches!(
+        request,
+        MoonrakerRequest::SetCaseLight(_)
+            | MoonrakerRequest::SetPartFan(_)
+            | MoonrakerRequest::SetSideFan(_)
+            | MoonrakerRequest::SetFilterFan(_)
+            | MoonrakerRequest::SetNozzleTarget(_)
+            | MoonrakerRequest::SetBedTarget(_)
+    )
 }
 
 #[cfg(test)]

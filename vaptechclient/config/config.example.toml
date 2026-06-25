@@ -19,3 +19,4 @@ queue_size = 512
 [log]
 level = "info"
 touch_level = "info"
+numeric_level = "info"

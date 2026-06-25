@@ -1,6 +1,6 @@
 use crate::app::state::{AppState, PrinterStatus};
 use crate::hmi::command::HmiCommand;
-use crate::ui::components::render_case_light_icon;
+use crate::ui::components::{render_case_light_icon, render_fan_icon};
 use crate::ui::render_target::{HomeMode, RenderTarget, resolve_render_target};
 
 /// Полная отрисовка текущей страницы.
@@ -20,6 +20,7 @@ pub fn render_full_target(target: RenderTarget, state: &AppState) -> Vec<HmiComm
         RenderTarget::Home(HomeMode::Cancelled) => render_result_full(false),
         RenderTarget::Home(HomeMode::Error) | RenderTarget::Error => render_error_full(state),
         RenderTarget::MoveTemp => render_move_temp_full(state),
+        RenderTarget::Fans => render_fans_full(state),
         RenderTarget::Settings => render_settings_full(state),
         _ => Vec::new(),
     }
@@ -48,6 +49,17 @@ fn render_move_temp_full(state: &AppState) -> Vec<HmiCommand> {
         HmiCommand::value("n4", round_temperature(state.temperatures.bed.current)),
         HmiCommand::value("n5", round_temperature(state.temperatures.bed.target)),
         HmiCommand::value("n3", state.hmi.move_distance.value_mm() as i32),
+    ]
+}
+
+fn render_fans_full(state: &AppState) -> Vec<HmiCommand> {
+    vec![
+        HmiCommand::value("h0", state.fans.part.percent as i32),
+        HmiCommand::value("n0", state.fans.part.percent as i32),
+        HmiCommand::value("h1", state.fans.side.percent as i32),
+        HmiCommand::value("n1", state.fans.side.percent as i32),
+        HmiCommand::value("h2", state.fans.filter.percent as i32),
+        HmiCommand::value("n2", state.fans.filter.percent as i32),
     ]
 }
 
@@ -86,6 +98,7 @@ fn render_print_full(state: &AppState) -> Vec<HmiCommand> {
         RenderTarget::Print,
         state.lights.case_light,
     ));
+    commands.extend(render_fan_icon(RenderTarget::Print, any_fan_enabled(state)));
 
     commands
 }
@@ -118,6 +131,10 @@ fn print_pause_button_pics(status: PrinterStatus) -> (u16, u16) {
     } else {
         (4, 5)
     }
+}
+
+fn any_fan_enabled(state: &AppState) -> bool {
+    state.fans.part.percent > 0 || state.fans.side.percent > 0 || state.fans.filter.percent > 0
 }
 
 #[cfg(test)]
@@ -174,6 +191,30 @@ mod tests {
     }
 
     #[test]
+    fn render_fans_full_includes_sliders_and_values() {
+        let mut state = AppState::default();
+
+        state.set_page(Page::Fans);
+        state.fans.part.percent = 100;
+        state.fans.side.percent = 42;
+        state.fans.filter.percent = 9;
+
+        let commands = render_full(&state);
+
+        assert_eq!(
+            commands,
+            vec![
+                HmiCommand::value("h0", 100),
+                HmiCommand::value("n0", 100),
+                HmiCommand::value("h1", 42),
+                HmiCommand::value("n1", 42),
+                HmiCommand::value("h2", 9),
+                HmiCommand::value("n2", 9),
+            ]
+        );
+    }
+
+    #[test]
     fn render_print_full_includes_print_page_fields() {
         let mut state = AppState::default();
 
@@ -206,6 +247,8 @@ mod tests {
                 HmiCommand::picture_pressed("b5", 5),
                 HmiCommand::picture("b6", 2),
                 HmiCommand::picture_pressed("b6", 2),
+                HmiCommand::picture("b7", 2),
+                HmiCommand::picture_pressed("b7", 2),
             ]
         );
     }
@@ -221,6 +264,19 @@ mod tests {
 
         assert!(commands.contains(&HmiCommand::picture("b6", 3)));
         assert!(commands.contains(&HmiCommand::picture_pressed("b6", 3)));
+    }
+
+    #[test]
+    fn render_print_full_includes_enabled_fan_icon_when_any_fan_is_active() {
+        let mut state = AppState::default();
+
+        state.set_page(Page::Printing);
+        state.fans.side.percent = 10;
+
+        let commands = render_full(&state);
+
+        assert!(commands.contains(&HmiCommand::picture("b7", 3)));
+        assert!(commands.contains(&HmiCommand::picture_pressed("b7", 3)));
     }
 
     #[test]

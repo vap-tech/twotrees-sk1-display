@@ -13,8 +13,8 @@ pub enum UiEffect {
 
 /// Потенциальные команды в Moonraker.
 ///
-/// Сейчас runtime их только логирует: реальный Moonraker client read-only.
-/// Поэтому наличие enum'а не означает, что команды уже уходят в принтер.
+/// Runtime отправляет наружу только явно разрешённые варианты. Поэтому наличие
+/// enum'а не означает, что команда уже физически уходит в принтер.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MoonrakerRequest {
     SendGcode(String),

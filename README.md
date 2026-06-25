@@ -337,6 +337,8 @@ Thumbnail не рендерится синхронно в UI:
 ```text
 render_full()
 ↓
+RenderTarget::thumbnail_request(...)
+↓
 ThumbnailRequest
 ↓
 worker
@@ -345,14 +347,25 @@ cache
 ↓
 ThumbnailReady
 ↓
-runtime проверяет актуальность
+current RenderTarget::accepts_thumbnail(...)
 ↓
 HmiCommand cp.write(...)
 ```
 
 Для страницы печати и страницы результата используется один pipeline, но разные
-`ThumbnailTarget`. Runtime не отправляет готовый thumbnail, если пользователь уже
-ушёл с экрана или слот файла больше не соответствует тому же path.
+`ThumbnailTarget`.
+
+Правило создания и доставки thumbnail намеренно лежит рядом с visual target:
+
+- `RenderTarget::thumbnail_request(&AppState)` решает, нужен ли экрану эскиз и
+  какой `ThumbnailTarget` использовать;
+- `RenderTarget::accepts_thumbnail(&AppState, &ThumbnailKey)` решает, можно ли
+  лить готовый thumbnail в текущий экран.
+
+Runtime не знает смыслов `PrintPage`, `ResultPage` и `FileSlot`; он только
+доставляет готовый thumbnail, если текущий `RenderTarget` его принимает. Если
+пользователь ушёл с экрана или слот файла уже занят другим path, готовый эскиз
+остаётся в cache и не отправляется в UART.
 
 ### Конфиг
 
@@ -370,6 +383,7 @@ baud = 115200
 [log]
 level = "info"
 touch_level = "info"
+numeric_level = "info"
 ```
 
 Полный пример лежит в `vaptechclient/config/config.example.toml`.
@@ -406,16 +420,18 @@ RUST_LOG=trace cargo run -- --config config/config.example.toml
 
 Для обычной проверки дисплея удобнее `debug`. Для разбора протокола - `trace`.
 
-Отдельно можно настроить уровень логирования touch-событий дисплея:
+Отдельно можно настроить уровень логирования разобранных HMI-событий дисплея:
 
 ```toml
 [log]
 touch_level = "info"
+numeric_level = "info"
 ```
 
-Поддерживаются `off`, `trace`, `debug`, `info`, `warn`, `error`. Это логирует
-уже разобранное событие `HmiEvent touch` с полями `page` и `component`, без сырого
-hex UART.
+Поддерживаются `off`, `trace`, `debug`, `info`, `warn`, `error`.
+`touch_level` логирует `HmiEvent touch` с полями `page` и `component`.
+`numeric_level` логирует `HmiEvent numeric` с полями `page`, `component` и
+`value`. Это уже разобранные события, без сырого hex UART.
 
 ### Проверка
 

@@ -128,6 +128,57 @@ impl MoonrakerClient {
                 Some(caselight_command_message(id, enabled))
             }
 
+            MoonrakerRequest::SetPartFan(percent) => {
+                let id = self.next_command_id;
+                self.next_command_id += 1;
+
+                tracing::info!(percent, "sending part fan command to Moonraker");
+
+                Some(gcode_script_message(id, part_fan_gcode(percent)))
+            }
+
+            MoonrakerRequest::SetSideFan(percent) => {
+                let id = self.next_command_id;
+                self.next_command_id += 1;
+
+                tracing::info!(percent, "sending side fan command to Moonraker");
+
+                Some(gcode_script_message(
+                    id,
+                    generic_fan_gcode("Side_fan", percent),
+                ))
+            }
+
+            MoonrakerRequest::SetFilterFan(percent) => {
+                let id = self.next_command_id;
+                self.next_command_id += 1;
+
+                tracing::info!(percent, "sending filter fan command to Moonraker");
+
+                Some(gcode_script_message(
+                    id,
+                    generic_fan_gcode("Filter_fan", percent),
+                ))
+            }
+
+            MoonrakerRequest::SetNozzleTarget(celsius) => {
+                let id = self.next_command_id;
+                self.next_command_id += 1;
+
+                tracing::info!(celsius, "sending nozzle target command to Moonraker");
+
+                Some(gcode_script_message(id, format!("M104 S{celsius}")))
+            }
+
+            MoonrakerRequest::SetBedTarget(celsius) => {
+                let id = self.next_command_id;
+                self.next_command_id += 1;
+
+                tracing::info!(celsius, "sending bed target command to Moonraker");
+
+                Some(gcode_script_message(id, format!("M140 S{celsius}")))
+            }
+
             other => {
                 tracing::debug!(
                     ?other,
@@ -181,7 +232,10 @@ fn objects_subscribe_message() -> String {
                 "extruder": null,
                 "heater_bed": null,
                 "toolhead": null,
-                "output_pin caselight": null
+                "output_pin caselight": null,
+                "fan": null,
+                "fan_generic Side_fan": null,
+                "fan_generic Filter_fan": null
             }
         },
         "id": SUBSCRIBE_ID
@@ -192,15 +246,31 @@ fn objects_subscribe_message() -> String {
 fn caselight_command_message(id: u64, enabled: bool) -> String {
     let value = if enabled { 1 } else { 0 };
 
+    gcode_script_message(id, format!("SET_PIN PIN=caselight VALUE={value}"))
+}
+
+fn gcode_script_message(id: u64, script: impl Into<String>) -> String {
     json!({
         "jsonrpc": "2.0",
         "method": "printer.gcode.script",
         "params": {
-            "script": format!("SET_PIN PIN=caselight VALUE={value}")
+            "script": script.into()
         },
         "id": id
     })
     .to_string()
+}
+
+fn part_fan_gcode(percent: u8) -> String {
+    let speed = ((percent.min(100) as u16 * 255) + 50) / 100;
+
+    format!("M106 S{speed}")
+}
+
+fn generic_fan_gcode(name: &str, percent: u8) -> String {
+    let speed = f32::from(percent.min(100)) / 100.0;
+
+    format!("SET_FAN_SPEED FAN={name} SPEED={speed:.2}")
 }
 
 #[cfg(test)]
@@ -222,6 +292,9 @@ mod tests {
         assert!(message["params"]["objects"]["heater_bed"].is_null());
         assert!(message["params"]["objects"]["toolhead"].is_null());
         assert!(message["params"]["objects"]["output_pin caselight"].is_null());
+        assert!(message["params"]["objects"]["fan"].is_null());
+        assert!(message["params"]["objects"]["fan_generic Side_fan"].is_null());
+        assert!(message["params"]["objects"]["fan_generic Filter_fan"].is_null());
     }
 
     #[test]

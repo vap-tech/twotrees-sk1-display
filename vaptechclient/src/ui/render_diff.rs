@@ -1,6 +1,6 @@
 use crate::app::state::{AppState, PrinterStatus};
 use crate::hmi::command::HmiCommand;
-use crate::ui::components::render_case_light_icon;
+use crate::ui::components::{render_case_light_icon, render_fan_icon};
 use crate::ui::render_full::render_full_target;
 use crate::ui::render_target::{HomeMode, RenderTarget, resolve_render_target};
 
@@ -23,6 +23,7 @@ pub fn render_diff(old: &AppState, new: &AppState) -> Vec<HmiCommand> {
         RenderTarget::Home(HomeMode::Idle) => render_home_diff(old, new, new_target),
         RenderTarget::Home(HomeMode::Printing) | RenderTarget::Print => render_print_diff(old, new),
         RenderTarget::MoveTemp => render_move_temp_diff(old, new),
+        RenderTarget::Fans => render_fans_diff(old, new),
         _ => Vec::new(),
     }
 }
@@ -48,6 +49,34 @@ fn render_move_temp_diff(old: &AppState, new: &AppState) -> Vec<HmiCommand> {
     commands
 }
 
+fn render_fans_diff(old: &AppState, new: &AppState) -> Vec<HmiCommand> {
+    let mut commands = Vec::new();
+
+    push_fan_value_if_changed(
+        &mut commands,
+        "h0",
+        "n0",
+        old.fans.part.percent,
+        new.fans.part.percent,
+    );
+    push_fan_value_if_changed(
+        &mut commands,
+        "h1",
+        "n1",
+        old.fans.side.percent,
+        new.fans.side.percent,
+    );
+    push_fan_value_if_changed(
+        &mut commands,
+        "h2",
+        "n2",
+        old.fans.filter.percent,
+        new.fans.filter.percent,
+    );
+
+    commands
+}
+
 fn render_print_diff(old: &AppState, new: &AppState) -> Vec<HmiCommand> {
     let mut commands = render_print_temperature_diff(old, new);
 
@@ -68,6 +97,7 @@ fn render_print_diff(old: &AppState, new: &AppState) -> Vec<HmiCommand> {
     push_remaining_time_diff(&mut commands, old, new);
     push_print_button_diff(&mut commands, old, new);
     commands.extend(render_case_light_icon_diff(old, new, RenderTarget::Print));
+    commands.extend(render_fan_icon_diff(old, new, RenderTarget::Print));
 
     commands
 }
@@ -157,6 +187,21 @@ fn render_case_light_icon_diff(
     render_case_light_icon(target, new.lights.case_light)
 }
 
+fn render_fan_icon_diff(old: &AppState, new: &AppState, target: RenderTarget) -> Vec<HmiCommand> {
+    let old_enabled = any_fan_enabled(old);
+    let new_enabled = any_fan_enabled(new);
+
+    if old_enabled == new_enabled {
+        return Vec::new();
+    }
+
+    render_fan_icon(target, new_enabled)
+}
+
+fn any_fan_enabled(state: &AppState) -> bool {
+    state.fans.part.percent > 0 || state.fans.side.percent > 0 || state.fans.filter.percent > 0
+}
+
 fn render_temperature_diff(old: &AppState, new: &AppState) -> Vec<HmiCommand> {
     let mut commands = Vec::new();
 
@@ -200,6 +245,21 @@ fn push_if_changed(
     if old_value != new_value {
         commands.push(HmiCommand::value(component, new_value));
     }
+}
+
+fn push_fan_value_if_changed(
+    commands: &mut Vec<HmiCommand>,
+    slider_component: &str,
+    value_component: &str,
+    old_value: u8,
+    new_value: u8,
+) {
+    if old_value == new_value {
+        return;
+    }
+
+    commands.push(HmiCommand::value(slider_component, new_value as i32));
+    commands.push(HmiCommand::value(value_component, new_value as i32));
 }
 
 fn push_text_if_changed(
@@ -341,6 +401,23 @@ mod tests {
         let commands = render_diff(&old, &new);
 
         assert_eq!(commands, vec![HmiCommand::value("n3", 30)]);
+    }
+
+    #[test]
+    fn same_fans_page_fan_change_updates_slider_and_value() {
+        let mut old = AppState::default();
+        old.set_page(Page::Fans);
+        old.fans.side.percent = 10;
+
+        let mut new = old.clone();
+        new.fans.side.percent = 42;
+
+        let commands = render_diff(&old, &new);
+
+        assert_eq!(
+            commands,
+            vec![HmiCommand::value("h1", 42), HmiCommand::value("n1", 42)]
+        );
     }
 
     #[test]
@@ -498,6 +575,42 @@ mod tests {
                 HmiCommand::picture_pressed("b6", 3),
             ]
         );
+    }
+
+    #[test]
+    fn same_print_page_fan_change_updates_icon_when_any_fan_becomes_active() {
+        let mut old = AppState::default();
+        old.set_page(Page::Printing);
+        old.fans.part.percent = 0;
+        old.fans.side.percent = 0;
+        old.fans.filter.percent = 0;
+
+        let mut new = old.clone();
+        new.fans.filter.percent = 20;
+
+        let commands = render_diff(&old, &new);
+
+        assert_eq!(
+            commands,
+            vec![
+                HmiCommand::picture("b7", 3),
+                HmiCommand::picture_pressed("b7", 3),
+            ]
+        );
+    }
+
+    #[test]
+    fn same_print_page_fan_percent_change_does_not_redraw_icon_when_active_state_is_same() {
+        let mut old = AppState::default();
+        old.set_page(Page::Printing);
+        old.fans.part.percent = 10;
+
+        let mut new = old.clone();
+        new.fans.part.percent = 20;
+
+        let commands = render_diff(&old, &new);
+
+        assert!(commands.is_empty());
     }
 
     #[test]

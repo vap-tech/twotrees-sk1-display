@@ -9,6 +9,9 @@ pub enum HmiEvent {
     /// Numeric response, usually from `get ...`.
     Numeric(u32),
 
+    /// Numeric input with known source component.
+    NumericInput { page: u8, component: u8, value: i32 },
+
     /// String response, usually from `get ...txt`.
     Text(String),
 
@@ -33,6 +36,14 @@ impl HmiEvent {
 
     pub fn numeric(value: u32) -> Self {
         Self::Numeric(value)
+    }
+
+    pub fn numeric_input(page: u8, component: u8, value: i32) -> Self {
+        Self::NumericInput {
+            page,
+            component,
+            value,
+        }
     }
 
     pub fn text(value: impl Into<String>) -> Self {
@@ -62,6 +73,18 @@ mod tests {
     #[test]
     fn numeric_constructor() {
         assert_eq!(HmiEvent::numeric(123), HmiEvent::Numeric(123));
+    }
+
+    #[test]
+    fn numeric_input_constructor() {
+        assert_eq!(
+            HmiEvent::numeric_input(6, 1, 42),
+            HmiEvent::NumericInput {
+                page: 6,
+                component: 1,
+                value: 42,
+            }
+        );
     }
 
     #[test]

@@ -1,6 +1,6 @@
-use crate::app::state::{AppState, ConnectionStatus, KlipperStatus, PrinterStatus};
+use crate::app::state::{AppState, ConnectionStatus, FanKind, KlipperStatus, PrinterStatus};
 use crate::moonraker::event::{
-    HeaterKind, KlippyState as MoonrakerKlippyState, MoonrakerEvent,
+    FanKind as MoonrakerFanKind, HeaterKind, KlippyState as MoonrakerKlippyState, MoonrakerEvent,
     PrinterStatus as MoonrakerPrinterStatus,
 };
 
@@ -65,10 +65,22 @@ pub fn reduce_moonraker_event(state: &mut AppState, event: MoonrakerEvent) {
             state.lights.case_light = enabled;
         }
 
+        MoonrakerEvent::FanChanged { fan, percent } => {
+            state.set_fan_percent(map_fan_kind(fan), percent);
+        }
+
         MoonrakerEvent::FileListChanged
         | MoonrakerEvent::GcodeResponse(_)
         | MoonrakerEvent::Error(_)
         | MoonrakerEvent::Unknown => {}
+    }
+}
+
+fn map_fan_kind(fan: MoonrakerFanKind) -> FanKind {
+    match fan {
+        MoonrakerFanKind::Part => FanKind::Part,
+        MoonrakerFanKind::Side => FanKind::Side,
+        MoonrakerFanKind::Filter => FanKind::Filter,
     }
 }
 
@@ -354,6 +366,37 @@ mod tests {
         reduce_moonraker_event(&mut state, MoonrakerEvent::CaseLightChanged(false));
 
         assert!(!state.lights.case_light);
+    }
+
+    #[test]
+    fn fan_event_updates_actual_state() {
+        let mut state = AppState::default();
+
+        reduce_moonraker_event(
+            &mut state,
+            MoonrakerEvent::FanChanged {
+                fan: MoonrakerFanKind::Part,
+                percent: 100,
+            },
+        );
+        reduce_moonraker_event(
+            &mut state,
+            MoonrakerEvent::FanChanged {
+                fan: MoonrakerFanKind::Side,
+                percent: 42,
+            },
+        );
+        reduce_moonraker_event(
+            &mut state,
+            MoonrakerEvent::FanChanged {
+                fan: MoonrakerFanKind::Filter,
+                percent: 9,
+            },
+        );
+
+        assert_eq!(state.fans.part.percent, 100);
+        assert_eq!(state.fans.side.percent, 42);
+        assert_eq!(state.fans.filter.percent, 9);
     }
 
     #[test]

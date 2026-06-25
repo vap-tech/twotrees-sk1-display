@@ -14,6 +14,9 @@ pub enum UiIntent {
 
     ToggleCaseLight,
     ToggleFan(FanKind),
+    SetFanPercent { fan: FanKind, percent: u8 },
+    SetNozzleTarget { celsius: i32 },
+    SetBedTarget { celsius: i32 },
 
     HomeAllAxes,
     MoveAxis { axis: Axis, distance: f32 },
@@ -26,6 +29,7 @@ pub enum UiIntent {
     StopPrint,
 
     UnknownTouch { page: u8, component: u8 },
+    UnknownNumeric { page: u8, component: u8, value: i32 },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -29,6 +29,11 @@ pub enum MoonrakerEvent {
 
     CaseLightChanged(bool),
 
+    FanChanged {
+        fan: FanKind,
+        percent: u8,
+    },
+
     FileListChanged,
 
     GcodeResponse(String),
@@ -62,6 +67,13 @@ pub enum PrinterStatus {
 pub enum HeaterKind {
     Nozzle,
     Bed,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FanKind {
+    Part,
+    Side,
+    Filter,
 }
 
 impl MoonrakerEvent {

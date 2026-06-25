@@ -6,15 +6,16 @@ use crate::app::state::AppState;
 use crate::hmi::command::HmiCommand;
 use crate::hmi::event::HmiEvent;
 use crate::moonraker::event::MoonrakerEvent;
-use crate::thumbnail::{ThumbnailKey, ThumbnailRequest, ThumbnailSource};
+use crate::thumbnail::ThumbnailRequest;
 use crate::ui::action_handler::{
     apply_hmi_intent, intent_is_blocked_by_printer_state, moonraker_requests_for_intent,
 };
 use crate::ui::effect::{MoonrakerRequest, UiEffect};
+use crate::ui::intent::UiIntent;
 use crate::ui::render_diff::render_diff;
 use crate::ui::render_full::render_full_target;
 use crate::ui::render_target::{RenderTarget, resolve_render_target};
-use crate::ui::route::route_touch;
+use crate::ui::route::{route_numeric, route_touch};
 
 /// Application core.
 ///
@@ -77,7 +78,15 @@ impl AppRunner {
             }
 
             HmiEvent::Touch { page, component } => {
-                self.handle_touch(page, component);
+                self.handle_intent(route_touch(page, component));
+            }
+
+            HmiEvent::NumericInput {
+                page,
+                component,
+                value,
+            } => {
+                self.handle_intent(route_numeric(page, component, value));
             }
 
             _ => {}
@@ -86,9 +95,7 @@ impl AppRunner {
         Ok(())
     }
 
-    fn handle_touch(&mut self, page: u8, component: u8) {
-        let intent = route_touch(page, component);
-
+    fn handle_intent(&mut self, intent: UiIntent) {
         if intent_is_blocked_by_printer_state(&self.state, &intent) {
             tracing::debug!(
                 ?intent,
@@ -99,6 +106,7 @@ impl AppRunner {
         }
 
         let old_state = self.state.clone();
+        let old_target = resolve_render_target(&old_state);
 
         apply_hmi_intent(&mut self.state, &intent);
 
@@ -107,6 +115,11 @@ impl AppRunner {
 
         self.hmi_commands
             .extend(render_diff(&old_state, &self.state));
+
+        let new_target = resolve_render_target(&self.state);
+        if old_target != new_target {
+            self.request_thumbnail_for_target(new_target);
+        }
     }
 
     fn render_startup_page(&mut self) -> Result<()> {
@@ -140,7 +153,7 @@ impl AppRunner {
 
         self.hmi_commands.extend(commands);
 
-        if new_target.wants_thumbnail() && (old_target != new_target || filename_changed) {
+        if old_target != new_target || filename_changed {
             self.request_thumbnail_for_target(new_target);
         }
 
@@ -164,26 +177,9 @@ impl AppRunner {
     }
 
     fn request_thumbnail_for_target(&mut self, target: RenderTarget) {
-        let Some(filename) = self.state.print.filename.clone() else {
-            return;
-        };
-
-        let key = if target.is_print_view() {
-            ThumbnailKey::print(filename.clone())
-        } else if target.is_result_view() {
-            ThumbnailKey::result(filename.clone())
-        } else {
-            return;
-        };
-
-        self.thumbnail_requests.push(ThumbnailRequest::Prepare {
-            key,
-            source: ThumbnailSource::MoonrakerFile {
-                path: filename,
-                modified: None,
-                size: None,
-            },
-        });
+        if let Some(request) = target.thumbnail_request(&self.state) {
+            self.thumbnail_requests.push(request);
+        }
     }
 }
 
@@ -191,7 +187,7 @@ impl AppRunner {
 mod tests {
     use super::*;
 
-    use crate::app::state::{ActiveOperation, Page, PrinterStatus};
+    use crate::app::state::{ActiveOperation, FanKind, Page, PrinterStatus};
     use crate::moonraker::event::KlippyState;
     use crate::thumbnail::{ThumbnailKey, ThumbnailTarget};
 
@@ -384,6 +380,59 @@ mod tests {
         assert_eq!(
             runner.moonraker_requests,
             vec![MoonrakerRequest::SetCaseLight(true)]
+        );
+    }
+
+    #[test]
+    fn touch_fans_component_0_returns_home() {
+        let mut runner = AppRunner::new();
+
+        runner.state.set_page(Page::Fans);
+
+        runner
+            .handle_event(AppEvent::hmi(HmiEvent::touch(6, 0)))
+            .unwrap();
+
+        assert_eq!(runner.state.hmi.current_screen, Page::Home);
+        assert_eq!(runner.hmi_commands.first(), Some(&HmiCommand::page(0)));
+    }
+
+    #[test]
+    fn touch_fans_component_0_during_print_requests_print_thumbnail() {
+        let mut runner = AppRunner::new();
+
+        runner.state.set_page(Page::Fans);
+        runner.state.printer.status = PrinterStatus::Printing;
+        runner.state.print.filename = Some("cube.gcode".to_string());
+
+        runner
+            .handle_event(AppEvent::hmi(HmiEvent::touch(6, 0)))
+            .unwrap();
+
+        assert_eq!(runner.state.hmi.current_screen, Page::Home);
+        assert_eq!(runner.hmi_commands.first(), Some(&HmiCommand::page(2)));
+        assert_eq!(runner.thumbnail_requests.len(), 1);
+        assert_eq!(
+            runner.thumbnail_requests[0].key(),
+            &ThumbnailKey::print("cube.gcode")
+        );
+    }
+
+    #[test]
+    fn numeric_fan_slider_creates_request_without_mutating_state() {
+        let mut runner = AppRunner::new();
+
+        runner.state.set_page(Page::Fans);
+        runner.state.set_fan_percent(FanKind::Side, 0);
+
+        runner
+            .handle_event(AppEvent::hmi(HmiEvent::numeric_input(6, 1, 42)))
+            .unwrap();
+
+        assert_eq!(runner.state.fans.side.percent, 0);
+        assert_eq!(
+            runner.moonraker_requests,
+            vec![MoonrakerRequest::SetSideFan(42)]
         );
     }
 

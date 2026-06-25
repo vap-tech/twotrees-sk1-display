@@ -42,10 +42,25 @@ fn parse_numeric(payload: &[u8]) -> Result<HmiEvent> {
         bail!("invalid numeric frame length: {}", payload.len());
     }
 
+    // Ползуны и числовые поля TJC шлют значение вместе с источником:
+    // 71 <page> <component> <value_lo> <value_hi> ff ff ff.
+    // Старый generic `get` при этом тоже начинается с 0x71, поэтому известные
+    // интерактивные страницы распознаём явно, а всё остальное оставляем как
+    // обычный little-endian numeric response.
+    if is_component_numeric_input(payload[1], payload[2]) {
+        let value = u16::from_le_bytes([payload[3], payload[4]]) as i32;
+
+        return Ok(HmiEvent::numeric_input(payload[1], payload[2], value));
+    }
+
     // Numeric ответы HMI приходят little-endian после кода 0x71.
     let value = u32::from_le_bytes([payload[1], payload[2], payload[3], payload[4]]);
 
     Ok(HmiEvent::numeric(value))
+}
+
+fn is_component_numeric_input(page: u8, component: u8) -> bool {
+    matches!((page, component), (6, 0..=2))
 }
 
 fn parse_text(payload: &[u8]) -> Result<HmiEvent> {
@@ -98,6 +113,13 @@ mod tests {
         let event = parse_frame(&[0x71, 0x78, 0x56, 0x34, 0x12, 0xFF, 0xFF, 0xFF]).unwrap();
 
         assert_eq!(event, HmiEvent::numeric(0x12345678));
+    }
+
+    #[test]
+    fn parse_fan_slider_numeric_input_frame() {
+        let event = parse_frame(&[0x71, 0x06, 0x01, 0x2A, 0x00, 0xFF, 0xFF, 0xFF]).unwrap();
+
+        assert_eq!(event, HmiEvent::numeric_input(6, 1, 42));
     }
 
     #[test]

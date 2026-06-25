@@ -46,10 +46,12 @@ async fn main() -> Result<()> {
 
     let app_event_tx_from_hmi = app_event_tx.clone();
     let touch_log_level = config.log.touch_level.clone();
+    let numeric_log_level = config.log.numeric_level.clone();
 
     tokio::spawn(async move {
         while let Some(hmi_event) = hmi_event_rx.recv().await {
             log_hmi_touch_event(&hmi_event, &touch_log_level);
+            log_hmi_numeric_event(&hmi_event, &numeric_log_level);
 
             if app_event_tx_from_hmi
                 .send(AppEvent::hmi(hmi_event))
@@ -127,10 +129,72 @@ fn log_hmi_touch_event(event: &HmiEvent, level: &str) {
         "warn" => tracing::warn!(page = *page, component = *component, "HmiEvent touch"),
         "error" => tracing::error!(page = *page, component = *component, "HmiEvent touch"),
         unknown => tracing::warn!(
-            touch_log_level = unknown,
+            configured_level = unknown,
             page = *page,
             component = *component,
             "unknown touch log level; falling back to debug"
+        ),
+    }
+}
+
+fn log_hmi_numeric_event(event: &HmiEvent, level: &str) {
+    let HmiEvent::NumericInput {
+        page,
+        component,
+        value,
+    } = event
+    else {
+        return;
+    };
+
+    match level.to_ascii_lowercase().as_str() {
+        "off" | "none" | "disable" | "disabled" => {}
+        "trace" => {
+            tracing::trace!(
+                page = *page,
+                component = *component,
+                value = *value,
+                "HmiEvent numeric"
+            )
+        }
+        "debug" => {
+            tracing::debug!(
+                page = *page,
+                component = *component,
+                value = *value,
+                "HmiEvent numeric"
+            )
+        }
+        "info" => {
+            tracing::info!(
+                page = *page,
+                component = *component,
+                value = *value,
+                "HmiEvent numeric"
+            )
+        }
+        "warn" => {
+            tracing::warn!(
+                page = *page,
+                component = *component,
+                value = *value,
+                "HmiEvent numeric"
+            )
+        }
+        "error" => {
+            tracing::error!(
+                page = *page,
+                component = *component,
+                value = *value,
+                "HmiEvent numeric"
+            )
+        }
+        unknown => tracing::warn!(
+            configured_level = unknown,
+            page = *page,
+            component = *component,
+            value = *value,
+            "unknown numeric log level; falling back to debug"
         ),
     }
 }

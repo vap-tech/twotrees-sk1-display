@@ -44,12 +44,16 @@ pub fn apply_hmi_intent(state: &mut AppState, intent: &UiIntent) {
         UiIntent::OpenPrintControls
         | UiIntent::ToggleCaseLight
         | UiIntent::ToggleFan(_)
+        | UiIntent::SetFanPercent { .. }
+        | UiIntent::SetNozzleTarget { .. }
+        | UiIntent::SetBedTarget { .. }
         | UiIntent::MoveAxis { .. }
         | UiIntent::StartPrint
         | UiIntent::PausePrint
         | UiIntent::ResumePrint
         | UiIntent::StopPrint
-        | UiIntent::UnknownTouch { .. } => {}
+        | UiIntent::UnknownTouch { .. }
+        | UiIntent::UnknownNumeric { .. } => {}
     }
 }
 
@@ -73,6 +77,16 @@ pub fn moonraker_requests_for_intent(state: &AppState, intent: &UiIntent) -> Vec
             }
         }
 
+        UiIntent::SetFanPercent { fan, percent } => match fan {
+            FanKind::Part => vec![MoonrakerRequest::SetPartFan(*percent)],
+            FanKind::Side => vec![MoonrakerRequest::SetSideFan(*percent)],
+            FanKind::Filter => vec![MoonrakerRequest::SetFilterFan(*percent)],
+        },
+
+        UiIntent::SetNozzleTarget { celsius } => vec![MoonrakerRequest::SetNozzleTarget(*celsius)],
+
+        UiIntent::SetBedTarget { celsius } => vec![MoonrakerRequest::SetBedTarget(*celsius)],
+
         UiIntent::HomeAllAxes => vec![MoonrakerRequest::SendGcode("G28".to_string())],
 
         UiIntent::MoveAxis { axis, distance } => {
@@ -95,7 +109,8 @@ pub fn moonraker_requests_for_intent(state: &AppState, intent: &UiIntent) -> Vec
         | UiIntent::OpenPrintControls
         | UiIntent::SelectMoveDistance(_)
         | UiIntent::StartPrint
-        | UiIntent::UnknownTouch { .. } => Vec::new(),
+        | UiIntent::UnknownTouch { .. }
+        | UiIntent::UnknownNumeric { .. } => Vec::new(),
     }
 }
 
@@ -221,6 +236,36 @@ mod tests {
         assert_eq!(
             moonraker_requests_for_intent(&state, &UiIntent::ToggleFan(FanKind::Filter)),
             vec![MoonrakerRequest::SetFilterFan(100)]
+        );
+    }
+
+    #[test]
+    fn set_fan_percent_creates_request_without_mutating_state() {
+        let state = AppState::default();
+
+        let requests = moonraker_requests_for_intent(
+            &state,
+            &UiIntent::SetFanPercent {
+                fan: FanKind::Side,
+                percent: 42,
+            },
+        );
+
+        assert_eq!(state.fans.side.percent, 0);
+        assert_eq!(requests, vec![MoonrakerRequest::SetSideFan(42)]);
+    }
+
+    #[test]
+    fn set_temperature_targets_create_requests() {
+        let state = AppState::default();
+
+        assert_eq!(
+            moonraker_requests_for_intent(&state, &UiIntent::SetNozzleTarget { celsius: 215 }),
+            vec![MoonrakerRequest::SetNozzleTarget(215)]
+        );
+        assert_eq!(
+            moonraker_requests_for_intent(&state, &UiIntent::SetBedTarget { celsius: 60 }),
+            vec![MoonrakerRequest::SetBedTarget(60)]
         );
     }
 

@@ -1,4 +1,5 @@
 use crate::app::state::{AppState, Page, PrinterStatus};
+use crate::thumbnail::{ThumbnailKey, ThumbnailRequest, ThumbnailSource, ThumbnailTarget};
 
 /// Visual target, который должен быть показан на HMI прямо сейчас.
 ///
@@ -9,6 +10,7 @@ pub enum RenderTarget {
     Home(HomeMode),
     Files,
     Settings,
+    Fans,
     Calibration,
     MoveTemp,
     LoadUnload,
@@ -44,6 +46,7 @@ impl RenderTarget {
             Self::Home(HomeMode::Error) | Self::Error => 56,
             Self::Files => 54,
             Self::Settings => 11,
+            Self::Fans => 6,
             Self::Calibration => 33,
             Self::MoveTemp => 3,
             Self::LoadUnload => 4,
@@ -66,6 +69,49 @@ impl RenderTarget {
     pub fn wants_thumbnail(self) -> bool {
         self.is_print_view() || self.is_result_view()
     }
+
+    pub fn thumbnail_request(self, state: &AppState) -> Option<ThumbnailRequest> {
+        let filename = state.print.filename.clone()?;
+
+        let key = if self.is_print_view() {
+            ThumbnailKey::print(filename.clone())
+        } else if self.is_result_view() {
+            ThumbnailKey::result(filename.clone())
+        } else {
+            return None;
+        };
+
+        Some(ThumbnailRequest::Prepare {
+            key,
+            source: ThumbnailSource::MoonrakerFile {
+                path: filename,
+                modified: None,
+                size: None,
+            },
+        })
+    }
+
+    pub fn accepts_thumbnail(self, state: &AppState, key: &ThumbnailKey) -> bool {
+        match key.target {
+            ThumbnailTarget::PrintPage => {
+                self.is_print_view()
+                    && state.print.filename.as_deref() == Some(key.file_path.as_str())
+            }
+            ThumbnailTarget::FileSlot { slot } => {
+                self == Self::Files
+                    && state
+                        .files
+                        .visible_file_at(slot)
+                        .map(|file| file.path.as_str())
+                        == Some(key.file_path.as_str())
+            }
+            ThumbnailTarget::PreviewPage => false,
+            ThumbnailTarget::ResultPage => {
+                self.is_result_view()
+                    && state.print.filename.as_deref() == Some(key.file_path.as_str())
+            }
+        }
+    }
 }
 
 pub fn resolve_render_target(state: &AppState) -> RenderTarget {
@@ -74,6 +120,7 @@ pub fn resolve_render_target(state: &AppState) -> RenderTarget {
         Page::Print | Page::Printing => RenderTarget::Print,
         Page::Files => RenderTarget::Files,
         Page::Settings => RenderTarget::Settings,
+        Page::Fans => RenderTarget::Fans,
         Page::MoveTemp => RenderTarget::MoveTemp,
         Page::LoadUnload => RenderTarget::LoadUnload,
         Page::Calibration => RenderTarget::Calibration,
@@ -99,6 +146,8 @@ fn resolve_home_mode(status: PrinterStatus) -> HomeMode {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    use crate::app::state::FileSlot;
 
     #[test]
     fn home_standby_resolves_to_home_idle() {
@@ -161,5 +210,86 @@ mod tests {
         assert_eq!(RenderTarget::Home(HomeMode::Error).page_id(), 56);
         assert_eq!(RenderTarget::Home(HomeMode::Cancelled).page_id(), 77);
         assert_eq!(RenderTarget::Home(HomeMode::Complete).page_id(), 77);
+    }
+
+    #[test]
+    fn print_target_creates_print_thumbnail_request() {
+        let mut state = AppState::default();
+        state.print.filename = Some("cube.gcode".to_string());
+
+        let request = RenderTarget::Print.thumbnail_request(&state).unwrap();
+
+        assert_eq!(request.key(), &ThumbnailKey::print("cube.gcode"));
+    }
+
+    #[test]
+    fn result_target_creates_result_thumbnail_request() {
+        let mut state = AppState::default();
+        state.print.filename = Some("cube.gcode".to_string());
+
+        let request = RenderTarget::Result(ResultMode::Success)
+            .thumbnail_request(&state)
+            .unwrap();
+
+        assert_eq!(request.key(), &ThumbnailKey::result("cube.gcode"));
+    }
+
+    #[test]
+    fn non_thumbnail_target_has_no_thumbnail_request() {
+        let mut state = AppState::default();
+        state.print.filename = Some("cube.gcode".to_string());
+
+        assert!(RenderTarget::Fans.thumbnail_request(&state).is_none());
+    }
+
+    #[test]
+    fn thumbnail_target_without_filename_has_no_request() {
+        let state = AppState::default();
+
+        assert!(RenderTarget::Print.thumbnail_request(&state).is_none());
+    }
+
+    #[test]
+    fn print_target_accepts_matching_print_thumbnail() {
+        let mut state = AppState::default();
+        state.print.filename = Some("cube.gcode".to_string());
+
+        assert!(RenderTarget::Print.accepts_thumbnail(&state, &ThumbnailKey::print("cube.gcode")));
+        assert!(
+            !RenderTarget::Print.accepts_thumbnail(&state, &ThumbnailKey::print("other.gcode"))
+        );
+    }
+
+    #[test]
+    fn files_target_accepts_matching_visible_file_slot_thumbnail() {
+        let mut state = AppState::default();
+        state
+            .files
+            .set_visible_slot(0, Some(FileSlot::new("A.gcode", "A.gcode")));
+
+        assert!(
+            RenderTarget::Files.accepts_thumbnail(&state, &ThumbnailKey::file_slot("A.gcode", 0))
+        );
+        assert!(
+            !RenderTarget::Files.accepts_thumbnail(&state, &ThumbnailKey::file_slot("A.gcode", 1))
+        );
+        assert!(
+            !RenderTarget::Files.accepts_thumbnail(&state, &ThumbnailKey::file_slot("B.gcode", 0))
+        );
+    }
+
+    #[test]
+    fn result_target_accepts_matching_result_thumbnail() {
+        let mut state = AppState::default();
+        state.print.filename = Some("cube.gcode".to_string());
+
+        assert!(
+            RenderTarget::Result(ResultMode::Success)
+                .accepts_thumbnail(&state, &ThumbnailKey::result("cube.gcode"))
+        );
+        assert!(
+            !RenderTarget::Result(ResultMode::Success)
+                .accepts_thumbnail(&state, &ThumbnailKey::result("other.gcode"))
+        );
     }
 }

@@ -1,4 +1,4 @@
-use crate::app::state::{MoveDistance, Page};
+use crate::app::state::{FanKind, MoveDistance, Page};
 use crate::ui::intent::UiIntent;
 
 /// Тупая таблица маршрутизации touch-событий.
@@ -28,10 +28,42 @@ pub fn route_touch(page: u8, component: u8) -> UiIntent {
         (2, 1) => UiIntent::PausePrint,
         (2, 2) => UiIntent::StopPrint,
         (2, 6) => UiIntent::ToggleCaseLight,
+        (2, 7) => UiIntent::Navigate(Page::Fans),
+
+        // Fan page
+        (6, 0) => UiIntent::Navigate(Page::Home),
 
         // Неизвестные touch не теряем: их видно в логах и можно дописать позже.
         _ => UiIntent::UnknownTouch { page, component },
     }
+}
+
+pub fn route_numeric(page: u8, component: u8, value: i32) -> UiIntent {
+    match (page, component) {
+        // Fans page. Значение приходит уже в процентах.
+        (6, 0) => UiIntent::SetFanPercent {
+            fan: FanKind::Part,
+            percent: clamp_percent(value),
+        },
+        (6, 1) => UiIntent::SetFanPercent {
+            fan: FanKind::Side,
+            percent: clamp_percent(value),
+        },
+        (6, 2) => UiIntent::SetFanPercent {
+            fan: FanKind::Filter,
+            percent: clamp_percent(value),
+        },
+
+        _ => UiIntent::UnknownNumeric {
+            page,
+            component,
+            value,
+        },
+    }
+}
+
+fn clamp_percent(value: i32) -> u8 {
+    value.clamp(0, 100) as u8
 }
 
 // Старое имя оставляем, чтобы наружный код мигрировал постепенно.
@@ -77,6 +109,41 @@ mod tests {
     #[test]
     fn print_component_6_toggles_case_light() {
         assert_eq!(route_touch(2, 6), UiIntent::ToggleCaseLight);
+    }
+
+    #[test]
+    fn print_component_7_goes_to_fans_page() {
+        assert_eq!(route_touch(2, 7), UiIntent::Navigate(Page::Fans));
+    }
+
+    #[test]
+    fn fans_component_0_goes_home() {
+        assert_eq!(route_touch(6, 0), UiIntent::Navigate(Page::Home));
+    }
+
+    #[test]
+    fn fans_numeric_values_set_fan_percent() {
+        assert_eq!(
+            route_numeric(6, 0, 120),
+            UiIntent::SetFanPercent {
+                fan: FanKind::Part,
+                percent: 100,
+            }
+        );
+        assert_eq!(
+            route_numeric(6, 1, 42),
+            UiIntent::SetFanPercent {
+                fan: FanKind::Side,
+                percent: 42,
+            }
+        );
+        assert_eq!(
+            route_numeric(6, 2, -1),
+            UiIntent::SetFanPercent {
+                fan: FanKind::Filter,
+                percent: 0,
+            }
+        );
     }
 
     #[test]

@@ -3,6 +3,8 @@ use crate::ui::render_target::{HomeMode, RenderTarget};
 
 const CASE_LIGHT_OFF_PIC: u16 = 2;
 const CASE_LIGHT_ON_PIC: u16 = 3;
+const FAN_OFF_PIC: u16 = 2;
+const FAN_ON_PIC: u16 = 3;
 
 /// Vendor mapping семантических виджетов в физические компоненты TJC.
 ///
@@ -26,10 +28,30 @@ pub fn render_case_light_icon(target: RenderTarget, enabled: bool) -> Vec<HmiCom
     ]
 }
 
+pub fn render_fan_icon(target: RenderTarget, enabled: bool) -> Vec<HmiCommand> {
+    let Some(component) = fan_component(target) else {
+        return Vec::new();
+    };
+
+    let pic = if enabled { FAN_ON_PIC } else { FAN_OFF_PIC };
+
+    vec![
+        HmiCommand::picture(component, pic),
+        HmiCommand::picture_pressed(component, pic),
+    ]
+}
+
 fn case_light_component(target: RenderTarget) -> Option<&'static str> {
     match target {
         RenderTarget::Home(HomeMode::Idle) => Some("b5"),
         RenderTarget::Home(HomeMode::Printing) | RenderTarget::Print => Some("b6"),
+        _ => None,
+    }
+}
+
+fn fan_component(target: RenderTarget) -> Option<&'static str> {
+    match target {
+        RenderTarget::Print | RenderTarget::Home(HomeMode::Printing) => Some("b7"),
         _ => None,
     }
 }
@@ -63,5 +85,21 @@ mod tests {
     #[test]
     fn unsupported_target_has_no_case_light_icon() {
         assert!(render_case_light_icon(RenderTarget::Settings, true).is_empty());
+    }
+
+    #[test]
+    fn print_fan_icon_uses_b7() {
+        assert_eq!(
+            render_fan_icon(RenderTarget::Print, true),
+            vec![
+                HmiCommand::picture("b7", 3),
+                HmiCommand::picture_pressed("b7", 3),
+            ]
+        );
+    }
+
+    #[test]
+    fn unsupported_target_has_no_fan_icon() {
+        assert!(render_fan_icon(RenderTarget::Settings, true).is_empty());
     }
 }

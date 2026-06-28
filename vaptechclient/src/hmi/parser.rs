@@ -5,8 +5,7 @@ use crate::hmi::frame::payload_without_terminator;
 
 /// Превращает сырой UART frame в событие приложения.
 ///
-/// Важно: startup дисплея - только bare `0x91`. Вариант `91 ff ff ff`
-/// специально не принимается, потому что реальный дисплей так не шлет init.
+/// Важно: startup дисплея - только `0x91`.
 pub fn parse_frame(frame: &[u8]) -> Result<HmiEvent> {
     if frame == [0x91] {
         return Ok(HmiEvent::Startup);

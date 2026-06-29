@@ -239,6 +239,24 @@ impl MoonrakerClient {
                 Some(jsonrpc_method_message(id, "printer.print.resume"))
             }
 
+            MoonrakerRequest::ClearPrintResult => {
+                let id = self.next_command_id;
+                self.next_command_id += 1;
+
+                tracing::info!("sending print result clear command to Moonraker");
+
+                Some(gcode_script_message(id, "SDCARD_RESET_FILE"))
+            }
+
+            MoonrakerRequest::StartPrint { filename } => {
+                let id = self.next_command_id;
+                self.next_command_id += 1;
+
+                tracing::info!(filename, "sending start print command to Moonraker");
+
+                Some(start_print_message(id, filename))
+            }
+
             other => {
                 tracing::debug!(
                     ?other,
@@ -337,6 +355,18 @@ fn jsonrpc_method_message(id: u64, method: &'static str) -> String {
     .to_string()
 }
 
+fn start_print_message(id: u64, filename: impl Into<String>) -> String {
+    json!({
+        "jsonrpc": "2.0",
+        "method": "printer.print.start",
+        "params": {
+            "filename": filename.into()
+        },
+        "id": id
+    })
+    .to_string()
+}
+
 fn part_fan_gcode(percent: u8) -> String {
     let speed = ((percent.min(100) as u16 * 255) + 50) / 100;
 
@@ -402,6 +432,27 @@ mod tests {
         assert_eq!(resume["method"], "printer.print.resume");
         assert_eq!(resume["id"], 43);
         assert!(resume.get("params").is_none());
+    }
+
+    #[test]
+    fn clear_print_result_uses_sdcard_reset_file_gcode() {
+        let message: Value =
+            serde_json::from_str(&gcode_script_message(42, "SDCARD_RESET_FILE")).unwrap();
+
+        assert_eq!(message["jsonrpc"], "2.0");
+        assert_eq!(message["method"], "printer.gcode.script");
+        assert_eq!(message["id"], 42);
+        assert_eq!(message["params"]["script"], "SDCARD_RESET_FILE");
+    }
+
+    #[test]
+    fn start_print_uses_moonraker_print_start_method() {
+        let message: Value = serde_json::from_str(&start_print_message(42, "cube.gcode")).unwrap();
+
+        assert_eq!(message["jsonrpc"], "2.0");
+        assert_eq!(message["method"], "printer.print.start");
+        assert_eq!(message["id"], 42);
+        assert_eq!(message["params"]["filename"], "cube.gcode");
     }
 
     #[test]

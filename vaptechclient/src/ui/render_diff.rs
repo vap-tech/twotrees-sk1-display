@@ -32,6 +32,7 @@ fn render_home_diff(old: &AppState, new: &AppState, target: RenderTarget) -> Vec
     let mut commands = render_temperature_diff(old, new);
 
     commands.extend(render_case_light_icon_diff(old, new, target));
+    commands.extend(render_fan_icon_diff(old, new, target));
 
     commands
 }
@@ -357,6 +358,25 @@ mod tests {
             vec![
                 HmiCommand::picture("b5", 3),
                 HmiCommand::picture_pressed("b5", 3),
+            ]
+        );
+    }
+
+    #[test]
+    fn same_home_page_fan_change_updates_icon_when_any_fan_becomes_active() {
+        let mut old = AppState::default();
+        old.set_page(Page::Home);
+
+        let mut new = old.clone();
+        new.fans.side.percent = 20;
+
+        let commands = render_diff(&old, &new);
+
+        assert_eq!(
+            commands,
+            vec![
+                HmiCommand::picture("b6", 3),
+                HmiCommand::picture_pressed("b6", 3),
             ]
         );
     }

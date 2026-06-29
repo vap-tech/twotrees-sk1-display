@@ -1,7 +1,7 @@
 use crate::app::state::{AppState, PrinterStatus};
 use crate::hmi::command::HmiCommand;
 use crate::ui::components::{render_case_light_icon, render_fan_icon};
-use crate::ui::render_target::{HomeMode, RenderTarget, resolve_render_target};
+use crate::ui::render_target::{HomeMode, RenderTarget, ResultMode, resolve_render_target};
 
 /// Полная отрисовка текущей страницы.
 ///
@@ -16,9 +16,13 @@ pub fn render_full_target(target: RenderTarget, state: &AppState) -> Vec<HmiComm
     match target {
         RenderTarget::Home(HomeMode::Idle) => render_home_full(state),
         RenderTarget::Home(HomeMode::Printing) | RenderTarget::Print => render_print_full(state),
-        RenderTarget::Home(HomeMode::Complete) => render_result_full(true),
-        RenderTarget::Home(HomeMode::Cancelled) => render_result_full(false),
-        RenderTarget::Home(HomeMode::Error) | RenderTarget::Error => render_error_full(state),
+        RenderTarget::Home(HomeMode::Complete) | RenderTarget::Result(ResultMode::Success) => {
+            render_result_full(true)
+        }
+        RenderTarget::Home(HomeMode::Cancelled)
+        | RenderTarget::Home(HomeMode::Error)
+        | RenderTarget::Result(ResultMode::Failed)
+        | RenderTarget::Error => render_result_full(false),
         RenderTarget::MoveTemp => render_move_temp_full(state),
         RenderTarget::Fans => render_fans_full(state),
         RenderTarget::Settings => render_settings_full(state),
@@ -37,6 +41,10 @@ fn render_home_full(state: &AppState) -> Vec<HmiCommand> {
     commands.extend(render_case_light_icon(
         RenderTarget::Home(HomeMode::Idle),
         state.lights.case_light,
+    ));
+    commands.extend(render_fan_icon(
+        RenderTarget::Home(HomeMode::Idle),
+        any_fan_enabled(state),
     ));
 
     commands
@@ -111,12 +119,9 @@ fn render_result_full(success: bool) -> Vec<HmiCommand> {
     vec![
         HmiCommand::raw("print_done.cp0.close()"),
         HmiCommand::visible("print_done.cp0", false),
-        HmiCommand::value("print_done_flag", if success { 1 } else { 0 }),
+        HmiCommand::raw(format!("print_done_flag={}", if success { 1 } else { 0 })),
+        HmiCommand::raw("print_done.tm0.en=1"),
     ]
-}
-
-fn render_error_full(_state: &AppState) -> Vec<HmiCommand> {
-    Vec::new()
 }
 
 fn round_temperature(value: f32) -> i32 {
@@ -162,8 +167,23 @@ mod tests {
                 HmiCommand::value("n5", 60),
                 HmiCommand::picture("b5", 2),
                 HmiCommand::picture_pressed("b5", 2),
+                HmiCommand::picture("b6", 2),
+                HmiCommand::picture_pressed("b6", 2),
             ]
         );
+    }
+
+    #[test]
+    fn render_home_full_includes_enabled_fan_icon_when_any_fan_is_active() {
+        let mut state = AppState::default();
+
+        state.set_page(Page::Home);
+        state.fans.part.percent = 10;
+
+        let commands = render_full(&state);
+
+        assert!(commands.contains(&HmiCommand::picture("b6", 3)));
+        assert!(commands.contains(&HmiCommand::picture_pressed("b6", 3)));
     }
 
     #[test]
@@ -317,10 +337,43 @@ mod tests {
     }
 
     #[test]
+    fn render_complete_result_full_enables_hmi_status_timer() {
+        let mut state = AppState::default();
+
+        state.set_page(Page::Home);
+        state.printer.status = PrinterStatus::Complete;
+
+        let commands = render_full(&state);
+
+        assert_eq!(
+            commands,
+            vec![
+                HmiCommand::raw("print_done.cp0.close()"),
+                HmiCommand::visible("print_done.cp0", false),
+                HmiCommand::raw("print_done_flag=1"),
+                HmiCommand::raw("print_done.tm0.en=1"),
+            ]
+        );
+    }
+
+    #[test]
+    fn render_cancelled_result_full_enables_hmi_status_timer() {
+        let mut state = AppState::default();
+
+        state.set_page(Page::Home);
+        state.printer.status = PrinterStatus::Cancelled;
+
+        let commands = render_full(&state);
+
+        assert!(commands.contains(&HmiCommand::raw("print_done_flag=0")));
+        assert!(commands.contains(&HmiCommand::raw("print_done.tm0.en=1")));
+    }
+
+    #[test]
     fn render_target_home_modes_map_to_expected_page_ids() {
         assert_eq!(RenderTarget::Home(HomeMode::Idle).page_id(), 0);
         assert_eq!(RenderTarget::Home(HomeMode::Printing).page_id(), 2);
-        assert_eq!(RenderTarget::Home(HomeMode::Error).page_id(), 56);
+        assert_eq!(RenderTarget::Home(HomeMode::Error).page_id(), 77);
         assert_eq!(RenderTarget::Home(HomeMode::Cancelled).page_id(), 77);
         assert_eq!(RenderTarget::Home(HomeMode::Complete).page_id(), 77);
     }

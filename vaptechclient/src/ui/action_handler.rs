@@ -53,6 +53,8 @@ pub fn apply_hmi_intent(state: &mut AppState, intent: &UiIntent) {
         | UiIntent::PausePrint
         | UiIntent::ResumePrint
         | UiIntent::StopPrint
+        | UiIntent::ClearPrintResult
+        | UiIntent::ReprintCurrentFile
         | UiIntent::UnknownTouch { .. }
         | UiIntent::UnknownNumeric { .. } => {}
     }
@@ -110,6 +112,16 @@ pub fn moonraker_requests_for_intent(state: &AppState, intent: &UiIntent) -> Vec
         UiIntent::PausePrint => vec![MoonrakerRequest::PausePrint],
         UiIntent::ResumePrint => vec![MoonrakerRequest::ResumePrint],
         UiIntent::StopPrint => vec![MoonrakerRequest::CancelPrint],
+        UiIntent::ClearPrintResult => vec![MoonrakerRequest::ClearPrintResult],
+        UiIntent::ReprintCurrentFile => state
+            .print
+            .filename
+            .as_ref()
+            .map(|filename| MoonrakerRequest::StartPrint {
+                filename: filename.clone(),
+            })
+            .into_iter()
+            .collect(),
 
         UiIntent::Navigate(_)
         | UiIntent::OpenPrintControls
@@ -407,6 +419,15 @@ mod tests {
             moonraker_requests_for_intent(&state, &UiIntent::StopPrint),
             vec![MoonrakerRequest::CancelPrint]
         );
+        assert_eq!(
+            moonraker_requests_for_intent(&state, &UiIntent::ClearPrintResult),
+            vec![MoonrakerRequest::ClearPrintResult]
+        );
+
+        assert_eq!(
+            moonraker_requests_for_intent(&state, &UiIntent::ReprintCurrentFile),
+            Vec::<MoonrakerRequest>::new()
+        );
 
         assert_eq!(
             moonraker_requests_for_intent(&state, &UiIntent::TogglePauseResumePrint),
@@ -423,6 +444,19 @@ mod tests {
         assert_eq!(
             moonraker_requests_for_intent(&state, &UiIntent::TogglePauseResumePrint),
             vec![MoonrakerRequest::ResumePrint]
+        );
+    }
+
+    #[test]
+    fn reprint_current_file_uses_current_print_filename() {
+        let mut state = AppState::default();
+        state.print.filename = Some("cube.gcode".to_string());
+
+        assert_eq!(
+            moonraker_requests_for_intent(&state, &UiIntent::ReprintCurrentFile),
+            vec![MoonrakerRequest::StartPrint {
+                filename: "cube.gcode".to_string(),
+            }]
         );
     }
 

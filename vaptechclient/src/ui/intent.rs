@@ -28,6 +28,8 @@ pub enum UiIntent {
     PausePrint,
     ResumePrint,
     StopPrint,
+    ClearPrintResult,
+    ReprintCurrentFile,
 
     UnknownTouch { page: u8, component: u8 },
     UnknownNumeric { page: u8, component: u8, value: i32 },

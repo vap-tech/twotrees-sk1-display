@@ -22,6 +22,8 @@ pub enum MoonrakerRequest {
     PausePrint,
     ResumePrint,
     CancelPrint,
+    ClearPrintResult,
+    StartPrint { filename: String },
 
     SetNozzleTarget(i32),
     SetBedTarget(i32),

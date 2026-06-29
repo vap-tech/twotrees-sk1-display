@@ -16,6 +16,7 @@ pub enum RenderTarget {
     LoadUnload,
     Print,
     Network,
+    Info,
     Result(ResultMode),
     Error,
     Unknown(u16),
@@ -43,7 +44,7 @@ impl RenderTarget {
             Self::Home(HomeMode::Printing) | Self::Print => 2,
             Self::Home(HomeMode::Complete) | Self::Result(ResultMode::Success) => 77,
             Self::Home(HomeMode::Cancelled) | Self::Result(ResultMode::Failed) => 77,
-            Self::Home(HomeMode::Error) | Self::Error => 56,
+            Self::Home(HomeMode::Error) | Self::Error => 77,
             Self::Files => 54,
             Self::Settings => 11,
             Self::Fans => 6,
@@ -51,6 +52,7 @@ impl RenderTarget {
             Self::MoveTemp => 3,
             Self::LoadUnload => 4,
             Self::Network => 18,
+            Self::Info => 21,
             Self::Unknown(id) => id,
         }
     }
@@ -116,7 +118,7 @@ impl RenderTarget {
 
 pub fn resolve_render_target(state: &AppState) -> RenderTarget {
     match state.hmi.current_screen {
-        Page::Home => RenderTarget::Home(resolve_home_mode(state.printer.status)),
+        Page::Home => resolve_home_target(state),
         Page::Print | Page::Printing => RenderTarget::Print,
         Page::Files => RenderTarget::Files,
         Page::Settings => RenderTarget::Settings,
@@ -125,9 +127,18 @@ pub fn resolve_render_target(state: &AppState) -> RenderTarget {
         Page::LoadUnload => RenderTarget::LoadUnload,
         Page::Calibration => RenderTarget::Calibration,
         Page::Network => RenderTarget::Network,
+        Page::Info => RenderTarget::Info,
         Page::Error => RenderTarget::Error,
         Page::Unknown(id) => RenderTarget::Unknown(id),
     }
+}
+
+fn resolve_home_target(state: &AppState) -> RenderTarget {
+    if state.printer.status == PrinterStatus::Error {
+        return RenderTarget::Result(ResultMode::Failed);
+    }
+
+    RenderTarget::Home(resolve_home_mode(state.printer.status))
 }
 
 fn resolve_home_mode(status: PrinterStatus) -> HomeMode {
@@ -186,6 +197,18 @@ mod tests {
     }
 
     #[test]
+    fn home_error_resolves_to_failed_result() {
+        let mut state = AppState::default();
+        state.set_page(Page::Home);
+        state.printer.status = PrinterStatus::Error;
+
+        assert_eq!(
+            resolve_render_target(&state),
+            RenderTarget::Result(ResultMode::Failed)
+        );
+    }
+
+    #[test]
     fn files_printing_resolves_to_files() {
         let mut state = AppState::default();
         state.set_page(Page::Files);
@@ -207,9 +230,10 @@ mod tests {
     fn render_target_maps_to_hmi_page_id() {
         assert_eq!(RenderTarget::Home(HomeMode::Idle).page_id(), 0);
         assert_eq!(RenderTarget::Home(HomeMode::Printing).page_id(), 2);
-        assert_eq!(RenderTarget::Home(HomeMode::Error).page_id(), 56);
+        assert_eq!(RenderTarget::Home(HomeMode::Error).page_id(), 77);
         assert_eq!(RenderTarget::Home(HomeMode::Cancelled).page_id(), 77);
         assert_eq!(RenderTarget::Home(HomeMode::Complete).page_id(), 77);
+        assert_eq!(RenderTarget::Info.page_id(), 21);
     }
 
     #[test]

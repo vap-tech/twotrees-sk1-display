@@ -51,6 +51,7 @@ fn case_light_component(target: RenderTarget) -> Option<&'static str> {
 
 fn fan_component(target: RenderTarget) -> Option<&'static str> {
     match target {
+        RenderTarget::Home(HomeMode::Idle) => Some("b6"),
         RenderTarget::Print | RenderTarget::Home(HomeMode::Printing) => Some("b7"),
         _ => None,
     }
@@ -94,6 +95,17 @@ mod tests {
             vec![
                 HmiCommand::picture("b7", 3),
                 HmiCommand::picture_pressed("b7", 3),
+            ]
+        );
+    }
+
+    #[test]
+    fn home_idle_fan_icon_uses_b6() {
+        assert_eq!(
+            render_fan_icon(RenderTarget::Home(HomeMode::Idle), true),
+            vec![
+                HmiCommand::picture("b6", 3),
+                HmiCommand::picture_pressed("b6", 3),
             ]
         );
     }

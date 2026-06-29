@@ -210,6 +210,8 @@ mod tests {
                 HmiCommand::value("n5", 0),
                 HmiCommand::picture("b5", 2),
                 HmiCommand::picture_pressed("b5", 2),
+                HmiCommand::picture("b6", 2),
+                HmiCommand::picture_pressed("b6", 2),
             ]
         );
     }
@@ -307,17 +309,24 @@ mod tests {
     }
 
     #[test]
-    fn touch_home_component_1_goes_to_settings() {
+    fn touch_home_component_1_goes_to_move_temp() {
         let mut runner = AppRunner::new();
 
         runner
             .handle_event(AppEvent::hmi(HmiEvent::touch(0, 1)))
             .unwrap();
 
-        assert_eq!(runner.state.hmi.current_screen, Page::Settings);
+        assert_eq!(runner.state.hmi.current_screen, Page::MoveTemp);
         assert_eq!(
             runner.hmi_commands,
-            vec![HmiCommand::page(Page::Settings.id())]
+            vec![
+                HmiCommand::page(Page::MoveTemp.id()),
+                HmiCommand::value("n0", 0),
+                HmiCommand::value("n1", 0),
+                HmiCommand::value("n4", 0),
+                HmiCommand::value("n5", 0),
+                HmiCommand::value("n3", 10),
+            ]
         );
     }
 
@@ -340,7 +349,7 @@ mod tests {
         let mut runner = AppRunner::new();
 
         runner
-            .handle_event(AppEvent::hmi(HmiEvent::touch(33, 1)))
+            .handle_event(AppEvent::hmi(HmiEvent::touch(33, 5)))
             .unwrap();
 
         assert_eq!(
@@ -351,20 +360,6 @@ mod tests {
         assert_eq!(
             runner.moonraker_requests,
             vec![MoonrakerRequest::SendGcode("G28".to_string())]
-        );
-    }
-
-    #[test]
-    fn touch_print_pause_creates_pause_request() {
-        let mut runner = AppRunner::new();
-
-        runner
-            .handle_event(AppEvent::hmi(HmiEvent::touch(2, 1)))
-            .unwrap();
-
-        assert_eq!(
-            runner.moonraker_requests,
-            vec![MoonrakerRequest::PausePrint]
         );
     }
 
@@ -412,6 +407,37 @@ mod tests {
         assert_eq!(
             runner.moonraker_requests,
             vec![MoonrakerRequest::SetCaseLight(true)]
+        );
+    }
+
+    #[test]
+    fn touch_print_result_component_6_requests_clear_result() {
+        let mut runner = AppRunner::new();
+
+        runner
+            .handle_event(AppEvent::hmi(HmiEvent::touch(77, 6)))
+            .unwrap();
+
+        assert_eq!(
+            runner.moonraker_requests,
+            vec![MoonrakerRequest::ClearPrintResult]
+        );
+    }
+
+    #[test]
+    fn touch_print_result_component_5_requests_reprint() {
+        let mut runner = AppRunner::new();
+        runner.state.print.filename = Some("cube.gcode".to_string());
+
+        runner
+            .handle_event(AppEvent::hmi(HmiEvent::touch(77, 5)))
+            .unwrap();
+
+        assert_eq!(
+            runner.moonraker_requests,
+            vec![MoonrakerRequest::StartPrint {
+                filename: "cube.gcode".to_string()
+            }]
         );
     }
 

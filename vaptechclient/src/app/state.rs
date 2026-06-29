@@ -191,6 +191,7 @@ pub enum Page {
     LoadUnload,
     Calibration,
     Network,
+    Info,
     Error,
     Unknown(u16),
 }
@@ -210,6 +211,7 @@ impl Page {
             Self::Fans => 6,
             Self::Calibration => 33,
             Self::Network => 18,
+            Self::Info => 21,
             Self::Error => 56,
             Self::Unknown(id) => id,
         }
@@ -401,6 +403,7 @@ mod tests {
         assert_eq!(Page::Print.id(), 2);
         assert_eq!(Page::Printing.id(), 2);
         assert_eq!(Page::Calibration.id(), 33);
+        assert_eq!(Page::Info.id(), 21);
         assert_eq!(Page::Unknown(77).id(), 77);
     }
 

@@ -1,4 +1,4 @@
-use crate::app::state::{FanKind, MoveDistance, Page};
+use crate::app::state::{FanKind, Page};
 use crate::ui::intent::UiIntent;
 
 /// Тупая таблица маршрутизации touch-событий.
@@ -6,37 +6,47 @@ use crate::ui::intent::UiIntent;
 /// Здесь нет доступа к AppState: одинаковый touch всегда превращается в один
 /// и тот же intent, а блокировки и побочные эффекты решаются ниже.
 pub fn route_touch(page: u8, component: u8) -> UiIntent {
-    match (page, component) {
-        // Home page. Номера компонентов взяты из снифов штатного дисплея.
-        (0, 1) => UiIntent::Navigate(Page::Settings),
-        (0, 2) => UiIntent::Navigate(Page::Files),
-        (0, 3) => UiIntent::Navigate(Page::MoveTemp),
+    if let Some(intent) = route_global_navigation(component) {
+        return intent;
+    }
 
-        // Move/Temp page
-        (3, 1) => UiIntent::SelectMoveDistance(MoveDistance::Mm1),
-        (3, 2) => UiIntent::SelectMoveDistance(MoveDistance::Mm10),
-        (3, 3) => UiIntent::SelectMoveDistance(MoveDistance::Mm30),
+    match (page, component) {
+        // Home page. Номера компонентов выше 4 - локальные кнопки страницы.
+        (0, 5) => UiIntent::ToggleCaseLight,
+        (0, 6) => UiIntent::Navigate(Page::Fans),
 
         // Settings/System page
-        (11, 1) => UiIntent::Navigate(Page::Network),
-        (11, 2) => UiIntent::Navigate(Page::Calibration),
+        (11, 5) => UiIntent::Navigate(Page::Network),
+        (11, 6) => UiIntent::Navigate(Page::Calibration),
 
         // Calibration page
-        (33, 1) => UiIntent::HomeAllAxes,
+        (33, 5) => UiIntent::HomeAllAxes,
 
         // Print page
-        (2, 1) => UiIntent::PausePrint,
-        (2, 2) => UiIntent::StopPrint,
         (2, 5) => UiIntent::TogglePauseResumePrint,
         (2, 6) => UiIntent::ToggleCaseLight,
         (2, 7) => UiIntent::Navigate(Page::Fans),
 
-        // Fan page
-        (6, 0) => UiIntent::Navigate(Page::Home),
+        // Print result page. Component 5 is Reprint, 6 is Back/Clear.
+        (77, 5) => UiIntent::ReprintCurrentFile,
+        (77, 6) => UiIntent::ClearPrintResult,
 
         // Неизвестные touch не теряем: их видно в логах и можно дописать позже.
         _ => UiIntent::UnknownTouch { page, component },
     }
+}
+
+fn route_global_navigation(component: u8) -> Option<UiIntent> {
+    let page = match component {
+        0 => Page::Home,
+        1 => Page::MoveTemp,
+        2 => Page::Files,
+        3 => Page::Settings,
+        4 => Page::Info,
+        _ => return None,
+    };
+
+    Some(UiIntent::Navigate(page))
 }
 
 pub fn route_numeric(page: u8, component: u8, value: i32) -> UiIntent {
@@ -77,34 +87,30 @@ mod tests {
     use super::*;
 
     #[test]
-    fn home_component_1_goes_to_settings() {
-        assert_eq!(route_touch(0, 1), UiIntent::Navigate(Page::Settings));
+    fn components_0_to_4_are_global_navigation_on_any_page() {
+        for page in [0, 2, 3, 6, 11, 33, 54, 77] {
+            assert_eq!(route_touch(page, 0), UiIntent::Navigate(Page::Home));
+            assert_eq!(route_touch(page, 1), UiIntent::Navigate(Page::MoveTemp));
+            assert_eq!(route_touch(page, 2), UiIntent::Navigate(Page::Files));
+            assert_eq!(route_touch(page, 3), UiIntent::Navigate(Page::Settings));
+            assert_eq!(route_touch(page, 4), UiIntent::Navigate(Page::Info));
+        }
     }
 
     #[test]
-    fn home_component_2_goes_to_files() {
-        assert_eq!(route_touch(0, 2), UiIntent::Navigate(Page::Files));
+    fn home_component_5_toggles_case_light() {
+        assert_eq!(route_touch(0, 5), UiIntent::ToggleCaseLight);
     }
 
     #[test]
-    fn move_temp_distance_buttons() {
-        assert_eq!(
-            route_touch(3, 1),
-            UiIntent::SelectMoveDistance(MoveDistance::Mm1)
-        );
-        assert_eq!(
-            route_touch(3, 2),
-            UiIntent::SelectMoveDistance(MoveDistance::Mm10)
-        );
-        assert_eq!(
-            route_touch(3, 3),
-            UiIntent::SelectMoveDistance(MoveDistance::Mm30)
-        );
+    fn home_component_6_goes_to_fans_page() {
+        assert_eq!(route_touch(0, 6), UiIntent::Navigate(Page::Fans));
     }
 
     #[test]
-    fn settings_component_2_goes_to_calibration() {
-        assert_eq!(route_touch(11, 2), UiIntent::Navigate(Page::Calibration));
+    fn settings_local_components_go_to_network_and_calibration() {
+        assert_eq!(route_touch(11, 5), UiIntent::Navigate(Page::Network));
+        assert_eq!(route_touch(11, 6), UiIntent::Navigate(Page::Calibration));
     }
 
     #[test]
@@ -123,8 +129,18 @@ mod tests {
     }
 
     #[test]
-    fn fans_component_0_goes_home() {
-        assert_eq!(route_touch(6, 0), UiIntent::Navigate(Page::Home));
+    fn print_result_component_6_clears_print_result() {
+        assert_eq!(route_touch(77, 6), UiIntent::ClearPrintResult);
+    }
+
+    #[test]
+    fn print_result_component_5_reprints_current_file() {
+        assert_eq!(route_touch(77, 5), UiIntent::ReprintCurrentFile);
+    }
+
+    #[test]
+    fn calibration_local_component_5_homes_all_axes() {
+        assert_eq!(route_touch(33, 5), UiIntent::HomeAllAxes);
     }
 
     #[test]

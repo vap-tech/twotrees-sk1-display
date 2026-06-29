@@ -232,6 +232,8 @@ fn moonraker_request_is_enabled(request: &MoonrakerRequest) -> bool {
         MoonrakerRequest::SetCaseLight(_)
             | MoonrakerRequest::PausePrint
             | MoonrakerRequest::ResumePrint
+            | MoonrakerRequest::ClearPrintResult
+            | MoonrakerRequest::StartPrint { .. }
             | MoonrakerRequest::SetPartFan(_)
             | MoonrakerRequest::SetSideFan(_)
             | MoonrakerRequest::SetFilterFan(_)
@@ -272,6 +274,14 @@ mod tests {
     fn runtime_enables_pause_resume_but_not_cancel() {
         assert!(moonraker_request_is_enabled(&MoonrakerRequest::PausePrint));
         assert!(moonraker_request_is_enabled(&MoonrakerRequest::ResumePrint));
+        assert!(moonraker_request_is_enabled(
+            &MoonrakerRequest::ClearPrintResult
+        ));
+        assert!(moonraker_request_is_enabled(
+            &MoonrakerRequest::StartPrint {
+                filename: "cube.gcode".to_string()
+            }
+        ));
         assert!(!moonraker_request_is_enabled(
             &MoonrakerRequest::CancelPrint
         ));

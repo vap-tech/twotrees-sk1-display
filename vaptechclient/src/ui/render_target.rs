@@ -16,7 +16,9 @@ pub enum RenderTarget {
     LoadUnload,
     Print,
     Network,
-    Info,
+    Faq,
+    OnlineManual,
+    Contact,
     Result(ResultMode),
     Error,
     Unknown(u16),
@@ -52,7 +54,9 @@ impl RenderTarget {
             Self::MoveTemp => 3,
             Self::LoadUnload => 4,
             Self::Network => 18,
-            Self::Info => 21,
+            Self::Faq => 21,
+            Self::OnlineManual => 52,
+            Self::Contact => 53,
             Self::Unknown(id) => id,
         }
     }
@@ -127,7 +131,9 @@ pub fn resolve_render_target(state: &AppState) -> RenderTarget {
         Page::LoadUnload => RenderTarget::LoadUnload,
         Page::Calibration => RenderTarget::Calibration,
         Page::Network => RenderTarget::Network,
-        Page::Info => RenderTarget::Info,
+        Page::Faq => RenderTarget::Faq,
+        Page::OnlineManual => RenderTarget::OnlineManual,
+        Page::Contact => RenderTarget::Contact,
         Page::Error => RenderTarget::Error,
         Page::Unknown(id) => RenderTarget::Unknown(id),
     }
@@ -233,7 +239,9 @@ mod tests {
         assert_eq!(RenderTarget::Home(HomeMode::Error).page_id(), 77);
         assert_eq!(RenderTarget::Home(HomeMode::Cancelled).page_id(), 77);
         assert_eq!(RenderTarget::Home(HomeMode::Complete).page_id(), 77);
-        assert_eq!(RenderTarget::Info.page_id(), 21);
+        assert_eq!(RenderTarget::Faq.page_id(), 21);
+        assert_eq!(RenderTarget::OnlineManual.page_id(), 52);
+        assert_eq!(RenderTarget::Contact.page_id(), 53);
     }
 
     #[test]

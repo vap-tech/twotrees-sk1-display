@@ -10,6 +10,10 @@ pub fn route_touch(page: u8, component: u8) -> UiIntent {
         return intent;
     }
 
+    if let Some(intent) = route_faq_tabs(page, component) {
+        return intent;
+    }
+
     match (page, component) {
         // Home page. Номера компонентов выше 4 - локальные кнопки страницы.
         (0, 5) => UiIntent::ToggleCaseLight,
@@ -42,7 +46,22 @@ fn route_global_navigation(component: u8) -> Option<UiIntent> {
         1 => Page::MoveTemp,
         2 => Page::Files,
         3 => Page::Settings,
-        4 => Page::Info,
+        4 => Page::Faq,
+        _ => return None,
+    };
+
+    Some(UiIntent::Navigate(page))
+}
+
+fn route_faq_tabs(page: u8, component: u8) -> Option<UiIntent> {
+    if !matches!(page, 21 | 52 | 53) {
+        return None;
+    }
+
+    let page = match component {
+        5 => Page::Faq,
+        6 => Page::OnlineManual,
+        7 => Page::Contact,
         _ => return None,
     };
 
@@ -93,7 +112,7 @@ mod tests {
             assert_eq!(route_touch(page, 1), UiIntent::Navigate(Page::MoveTemp));
             assert_eq!(route_touch(page, 2), UiIntent::Navigate(Page::Files));
             assert_eq!(route_touch(page, 3), UiIntent::Navigate(Page::Settings));
-            assert_eq!(route_touch(page, 4), UiIntent::Navigate(Page::Info));
+            assert_eq!(route_touch(page, 4), UiIntent::Navigate(Page::Faq));
         }
     }
 
@@ -111,6 +130,15 @@ mod tests {
     fn settings_local_components_go_to_network_and_calibration() {
         assert_eq!(route_touch(11, 5), UiIntent::Navigate(Page::Network));
         assert_eq!(route_touch(11, 6), UiIntent::Navigate(Page::Calibration));
+    }
+
+    #[test]
+    fn faq_group_components_5_to_7_are_second_level_navigation() {
+        for page in [21, 52, 53] {
+            assert_eq!(route_touch(page, 5), UiIntent::Navigate(Page::Faq));
+            assert_eq!(route_touch(page, 6), UiIntent::Navigate(Page::OnlineManual));
+            assert_eq!(route_touch(page, 7), UiIntent::Navigate(Page::Contact));
+        }
     }
 
     #[test]

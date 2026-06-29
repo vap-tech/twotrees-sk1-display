@@ -14,6 +14,10 @@ pub fn route_touch(page: u8, component: u8) -> UiIntent {
         return intent;
     }
 
+    if let Some(intent) = route_file_tabs(page, component) {
+        return intent;
+    }
+
     match (page, component) {
         // Home page. Номера компонентов выше 4 - локальные кнопки страницы.
         (0, 5) => UiIntent::ToggleCaseLight,
@@ -62,6 +66,21 @@ fn route_faq_tabs(page: u8, component: u8) -> Option<UiIntent> {
         5 => Page::Faq,
         6 => Page::OnlineManual,
         7 => Page::Contact,
+        _ => return None,
+    };
+
+    Some(UiIntent::Navigate(page))
+}
+
+fn route_file_tabs(page: u8, component: u8) -> Option<UiIntent> {
+    if !matches!(page, 7 | 10 | 54) {
+        return None;
+    }
+
+    let page = match component {
+        5 => Page::Files,
+        6 => Page::UsbFiles,
+        7 => Page::FileHistory,
         _ => return None,
     };
 
@@ -138,6 +157,15 @@ mod tests {
             assert_eq!(route_touch(page, 5), UiIntent::Navigate(Page::Faq));
             assert_eq!(route_touch(page, 6), UiIntent::Navigate(Page::OnlineManual));
             assert_eq!(route_touch(page, 7), UiIntent::Navigate(Page::Contact));
+        }
+    }
+
+    #[test]
+    fn file_group_components_5_to_7_are_second_level_navigation() {
+        for page in [7, 10, 54] {
+            assert_eq!(route_touch(page, 5), UiIntent::Navigate(Page::Files));
+            assert_eq!(route_touch(page, 6), UiIntent::Navigate(Page::UsbFiles));
+            assert_eq!(route_touch(page, 7), UiIntent::Navigate(Page::FileHistory));
         }
     }
 

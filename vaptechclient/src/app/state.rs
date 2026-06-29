@@ -185,6 +185,8 @@ pub enum Page {
     Print,
     Printing,
     Files,
+    UsbFiles,
+    FileHistory,
     Settings,
     Fans,
     MoveTemp,
@@ -208,7 +210,9 @@ impl Page {
             Self::Printing => 2,
             Self::MoveTemp => 3,
             Self::LoadUnload => 4,
-            Self::Files => 54,
+            Self::Files => 7,
+            Self::UsbFiles => 54,
+            Self::FileHistory => 10,
             Self::Settings => 11,
             Self::Fans => 6,
             Self::Calibration => 33,
@@ -406,6 +410,9 @@ mod tests {
         assert_eq!(Page::Home.id(), 0);
         assert_eq!(Page::Print.id(), 2);
         assert_eq!(Page::Printing.id(), 2);
+        assert_eq!(Page::Files.id(), 7);
+        assert_eq!(Page::UsbFiles.id(), 54);
+        assert_eq!(Page::FileHistory.id(), 10);
         assert_eq!(Page::Calibration.id(), 33);
         assert_eq!(Page::Faq.id(), 21);
         assert_eq!(Page::OnlineManual.id(), 52);

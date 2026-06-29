@@ -9,6 +9,8 @@ use crate::thumbnail::{ThumbnailKey, ThumbnailRequest, ThumbnailSource, Thumbnai
 pub enum RenderTarget {
     Home(HomeMode),
     Files,
+    UsbFiles,
+    FileHistory,
     Settings,
     Fans,
     Calibration,
@@ -47,7 +49,9 @@ impl RenderTarget {
             Self::Home(HomeMode::Complete) | Self::Result(ResultMode::Success) => 77,
             Self::Home(HomeMode::Cancelled) | Self::Result(ResultMode::Failed) => 77,
             Self::Home(HomeMode::Error) | Self::Error => 77,
-            Self::Files => 54,
+            Self::Files => 7,
+            Self::UsbFiles => 54,
+            Self::FileHistory => 10,
             Self::Settings => 11,
             Self::Fans => 6,
             Self::Calibration => 33,
@@ -125,6 +129,8 @@ pub fn resolve_render_target(state: &AppState) -> RenderTarget {
         Page::Home => resolve_home_target(state),
         Page::Print | Page::Printing => RenderTarget::Print,
         Page::Files => RenderTarget::Files,
+        Page::UsbFiles => RenderTarget::UsbFiles,
+        Page::FileHistory => RenderTarget::FileHistory,
         Page::Settings => RenderTarget::Settings,
         Page::Fans => RenderTarget::Fans,
         Page::MoveTemp => RenderTarget::MoveTemp,
@@ -236,6 +242,9 @@ mod tests {
     fn render_target_maps_to_hmi_page_id() {
         assert_eq!(RenderTarget::Home(HomeMode::Idle).page_id(), 0);
         assert_eq!(RenderTarget::Home(HomeMode::Printing).page_id(), 2);
+        assert_eq!(RenderTarget::Files.page_id(), 7);
+        assert_eq!(RenderTarget::UsbFiles.page_id(), 54);
+        assert_eq!(RenderTarget::FileHistory.page_id(), 10);
         assert_eq!(RenderTarget::Home(HomeMode::Error).page_id(), 77);
         assert_eq!(RenderTarget::Home(HomeMode::Cancelled).page_id(), 77);
         assert_eq!(RenderTarget::Home(HomeMode::Complete).page_id(), 77);

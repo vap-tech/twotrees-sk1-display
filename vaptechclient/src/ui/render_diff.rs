@@ -23,6 +23,7 @@ pub fn render_diff(old: &AppState, new: &AppState) -> Vec<HmiCommand> {
         RenderTarget::Home(HomeMode::Idle) => render_home_diff(old, new, new_target),
         RenderTarget::Home(HomeMode::Printing) | RenderTarget::Print => render_print_diff(old, new),
         RenderTarget::MoveTemp => render_move_temp_diff(old, new),
+        RenderTarget::LoadUnload => render_load_unload_diff(old, new),
         RenderTarget::Fans => render_fans_diff(old, new),
         _ => Vec::new(),
     }
@@ -107,6 +108,19 @@ fn render_fans_diff(old: &AppState, new: &AppState) -> Vec<HmiCommand> {
         "n2",
         old.fans.filter.percent,
         new.fans.filter.percent,
+    );
+
+    commands
+}
+
+fn render_load_unload_diff(old: &AppState, new: &AppState) -> Vec<HmiCommand> {
+    let mut commands = Vec::new();
+
+    push_if_changed(
+        &mut commands,
+        "n1",
+        round_temperature(old.temperatures.filament_load_target),
+        round_temperature(new.temperatures.filament_load_target),
     );
 
     commands
@@ -514,6 +528,20 @@ mod tests {
             commands,
             vec![HmiCommand::value("h1", 42), HmiCommand::value("n1", 42)]
         );
+    }
+
+    #[test]
+    fn same_load_unload_page_filament_temperature_change_is_rendered() {
+        let mut old = AppState::default();
+        old.set_page(Page::LoadUnload);
+        old.temperatures.filament_load_target = 230.0;
+
+        let mut new = old.clone();
+        new.temperatures.filament_load_target = 240.0;
+
+        let commands = render_diff(&old, &new);
+
+        assert_eq!(commands, vec![HmiCommand::value("n1", 240)]);
     }
 
     #[test]

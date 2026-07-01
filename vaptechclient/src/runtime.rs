@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use tokio::sync::mpsc;
+use tokio::{sync::mpsc, time};
 
 use crate::app::event::AppEvent;
 use crate::app::runner::AppRunner;
@@ -131,6 +131,10 @@ impl Runtime {
             self.handle_moonraker_request(request).await?;
         }
 
+        for batch in self.runner.drain_delayed_hmi_batches() {
+            self.spawn_delayed_hmi_batch(batch);
+        }
+
         Ok(())
     }
 
@@ -219,6 +223,20 @@ impl Runtime {
             .send(command)
             .await
             .context("failed to queue HMI command")
+    }
+
+    fn spawn_delayed_hmi_batch(&self, batch: crate::app::runner::DelayedHmiBatch) {
+        let hmi_command_tx = self.hmi_command_tx.clone();
+
+        tokio::spawn(async move {
+            time::sleep(batch.delay).await;
+
+            for command in batch.commands {
+                if hmi_command_tx.send(command).await.is_err() {
+                    break;
+                }
+            }
+        });
     }
 
     fn thumbnail_is_current(&self, key: &ThumbnailKey) -> bool {

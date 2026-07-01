@@ -32,6 +32,10 @@ pub fn route_touch(page: u8, component: u8) -> UiIntent {
         (4, 9) => UiIntent::Navigate(Page::MoveTemp),
         (4, 10) => UiIntent::Navigate(Page::LoadUnload),
         (4, 11) => UiIntent::Navigate(Page::Fans),
+        (4, 7) => UiIntent::AdjustFilamentLoadTarget { delta: -10 },
+        (4, 8) => UiIntent::AdjustFilamentLoadTarget { delta: 10 },
+        (4, 5) => UiIntent::LoadFilament,
+        (4, 6) => UiIntent::UnloadFilament,
 
         // Fans page local tabs.
         (6, 5) => UiIntent::Navigate(Page::MoveTemp),
@@ -181,6 +185,24 @@ mod tests {
         assert_eq!(route_touch(4, 9), UiIntent::Navigate(Page::MoveTemp));
         assert_eq!(route_touch(4, 10), UiIntent::Navigate(Page::LoadUnload));
         assert_eq!(route_touch(4, 11), UiIntent::Navigate(Page::Fans));
+    }
+
+    #[test]
+    fn load_unload_page_temperature_buttons_adjust_target() {
+        assert_eq!(
+            route_touch(4, 7),
+            UiIntent::AdjustFilamentLoadTarget { delta: -10 }
+        );
+        assert_eq!(
+            route_touch(4, 8),
+            UiIntent::AdjustFilamentLoadTarget { delta: 10 }
+        );
+    }
+
+    #[test]
+    fn load_unload_page_buttons_start_filament_actions() {
+        assert_eq!(route_touch(4, 5), UiIntent::LoadFilament);
+        assert_eq!(route_touch(4, 6), UiIntent::UnloadFilament);
     }
 
     #[test]

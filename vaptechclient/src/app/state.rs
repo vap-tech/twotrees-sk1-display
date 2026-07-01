@@ -101,7 +101,7 @@ impl Default for TemperatureState {
         Self {
             nozzle: HeaterState::default(),
             bed: HeaterState::default(),
-            filament_load_target: 230.0,
+            filament_load_target: 240.0,
         }
     }
 }
@@ -312,6 +312,11 @@ impl AppState {
     pub fn set_bed_temperature(&mut self, current: f32, target: f32) {
         self.temperatures.bed.current = current;
         self.temperatures.bed.target = target;
+    }
+
+    pub fn adjust_filament_load_target(&mut self, delta: i32) {
+        self.temperatures.filament_load_target =
+            (self.temperatures.filament_load_target + delta as f32).clamp(0.0, 300.0);
     }
 
     pub fn set_fan_percent(&mut self, fan: FanKind, percent: u8) {

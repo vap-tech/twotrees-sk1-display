@@ -29,16 +29,12 @@ pub fn apply_hmi_intent(state: &mut AppState, intent: &UiIntent) {
             state.hmi.move_distance = *distance;
         }
 
+        UiIntent::AdjustFilamentLoadTarget { delta } => {
+            state.adjust_filament_load_target(*delta);
+        }
+
         UiIntent::HomeAllAxes => {
             state.lock_navigation(ActiveOperation::Homing);
-        }
-
-        UiIntent::LoadFilament => {
-            state.lock_navigation(ActiveOperation::LoadFilament);
-        }
-
-        UiIntent::UnloadFilament => {
-            state.lock_navigation(ActiveOperation::UnloadFilament);
         }
 
         UiIntent::OpenPrintControls
@@ -47,8 +43,10 @@ pub fn apply_hmi_intent(state: &mut AppState, intent: &UiIntent) {
         | UiIntent::SetFanPercent { .. }
         | UiIntent::SetNozzleTarget { .. }
         | UiIntent::SetBedTarget { .. }
-        | UiIntent::MoveAxis { .. }
         | UiIntent::StartPrint
+        | UiIntent::MoveAxis { .. }
+        | UiIntent::LoadFilament
+        | UiIntent::UnloadFilament
         | UiIntent::TogglePauseResumePrint
         | UiIntent::PausePrint
         | UiIntent::ResumePrint
@@ -126,6 +124,7 @@ pub fn moonraker_requests_for_intent(state: &AppState, intent: &UiIntent) -> Vec
         UiIntent::Navigate(_)
         | UiIntent::OpenPrintControls
         | UiIntent::SelectMoveDistance(_)
+        | UiIntent::AdjustFilamentLoadTarget { .. }
         | UiIntent::StartPrint
         | UiIntent::UnknownTouch { .. }
         | UiIntent::UnknownNumeric { .. } => Vec::new(),
@@ -218,6 +217,23 @@ mod tests {
             moonraker_requests_for_intent(&state, &UiIntent::SelectMoveDistance(MoveDistance::Mm1));
 
         assert_eq!(state.hmi.move_distance, MoveDistance::Mm1);
+        assert!(requests.is_empty());
+    }
+
+    #[test]
+    fn adjust_filament_load_target_updates_only_local_state() {
+        let mut state = AppState::default();
+
+        apply_hmi_intent(
+            &mut state,
+            &UiIntent::AdjustFilamentLoadTarget { delta: -10 },
+        );
+        let requests = moonraker_requests_for_intent(
+            &state,
+            &UiIntent::AdjustFilamentLoadTarget { delta: -10 },
+        );
+
+        assert_eq!(state.temperatures.filament_load_target, 230.0);
         assert!(requests.is_empty());
     }
 
@@ -466,26 +482,20 @@ mod tests {
     }
 
     #[test]
-    fn load_unload_lock_navigation_and_return_gcode() {
+    fn load_unload_returns_gcode_without_locking_navigation() {
         let mut state = AppState::default();
 
         apply_hmi_intent(&mut state, &UiIntent::LoadFilament);
-        assert_eq!(
-            state.process.active_operation,
-            ActiveOperation::LoadFilament
-        );
+        assert_eq!(state.process.active_operation, ActiveOperation::None);
+        assert!(!state.hmi.navigation_locked);
         assert_eq!(
             moonraker_requests_for_intent(&state, &UiIntent::LoadFilament),
             vec![MoonrakerRequest::SendGcode("LOAD_MATERIAL".to_string())]
         );
 
-        state.unlock_navigation();
-
         apply_hmi_intent(&mut state, &UiIntent::UnloadFilament);
-        assert_eq!(
-            state.process.active_operation,
-            ActiveOperation::UnloadFilament
-        );
+        assert_eq!(state.process.active_operation, ActiveOperation::None);
+        assert!(!state.hmi.navigation_locked);
         assert_eq!(
             moonraker_requests_for_intent(&state, &UiIntent::UnloadFilament),
             vec![MoonrakerRequest::SendGcode("UNLOAD_MATERIAL".to_string())]

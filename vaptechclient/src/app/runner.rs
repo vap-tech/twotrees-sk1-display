@@ -1,8 +1,9 @@
 use anyhow::Result;
+use std::time::Duration;
 
 use crate::app::event::AppEvent;
 use crate::app::reducers::moonraker::reduce_moonraker_event;
-use crate::app::state::AppState;
+use crate::app::state::{AppState, PrinterStatus};
 use crate::hmi::command::HmiCommand;
 use crate::hmi::event::HmiEvent;
 use crate::moonraker::event::MoonrakerEvent;
@@ -26,6 +27,13 @@ pub struct AppRunner {
     pub hmi_commands: Vec<HmiCommand>,
     pub moonraker_requests: Vec<MoonrakerRequest>,
     pub thumbnail_requests: Vec<ThumbnailRequest>,
+    pub delayed_hmi_batches: Vec<DelayedHmiBatch>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DelayedHmiBatch {
+    pub delay: Duration,
+    pub commands: Vec<HmiCommand>,
 }
 
 impl AppRunner {
@@ -35,6 +43,7 @@ impl AppRunner {
             hmi_commands: Vec::new(),
             moonraker_requests: Vec::new(),
             thumbnail_requests: Vec::new(),
+            delayed_hmi_batches: Vec::new(),
         }
     }
 
@@ -48,6 +57,10 @@ impl AppRunner {
 
     pub fn drain_thumbnail_requests(&mut self) -> Vec<ThumbnailRequest> {
         self.thumbnail_requests.drain(..).collect()
+    }
+
+    pub fn drain_delayed_hmi_batches(&mut self) -> Vec<DelayedHmiBatch> {
+        self.delayed_hmi_batches.drain(..).collect()
     }
 
     pub fn handle_event(&mut self, event: AppEvent) -> Result<()> {
@@ -102,6 +115,7 @@ impl AppRunner {
                 printer_status = ?self.state.printer.status,
                 "UI intent blocked by printer state"
             );
+            self.show_blocked_intent_alert(&intent);
             return;
         }
 
@@ -145,6 +159,25 @@ impl AppRunner {
         self.request_thumbnail_for_target(target);
 
         Ok(())
+    }
+
+    fn show_blocked_intent_alert(&mut self, intent: &UiIntent) {
+        if !should_show_printing_alert(&self.state, intent) {
+            return;
+        }
+
+        self.hmi_commands.push(HmiCommand::page(56));
+        self.hmi_commands
+            .push(HmiCommand::text("t0", "Printing is active"));
+
+        let target = resolve_render_target(&self.state);
+        let mut restore_commands = vec![HmiCommand::page(target.page_id())];
+        restore_commands.extend(render_full_target(target, &self.state));
+
+        self.delayed_hmi_batches.push(DelayedHmiBatch {
+            delay: Duration::from_secs(2),
+            commands: restore_commands,
+        });
     }
 
     fn handle_moonraker_event(&mut self, event: MoonrakerEvent) -> Result<()> {
@@ -192,11 +225,16 @@ impl AppRunner {
     }
 }
 
+fn should_show_printing_alert(state: &AppState, intent: &UiIntent) -> bool {
+    state.printer.status == PrinterStatus::Printing
+        && matches!(intent, UiIntent::LoadFilament | UiIntent::UnloadFilament)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    use crate::app::state::{ActiveOperation, FanKind, Page, PrinterStatus};
+    use crate::app::state::{ActiveOperation, FanKind, Page};
     use crate::moonraker::event::KlippyState;
     use crate::thumbnail::{ThumbnailKey, ThumbnailTarget};
 
@@ -366,6 +404,53 @@ mod tests {
                 HmiCommand::value("n0", 220),
                 HmiCommand::value("n2", 60),
                 HmiCommand::value("n1", 60),
+            ]
+        );
+    }
+
+    #[test]
+    fn touch_load_unload_temperature_button_updates_display_only() {
+        let mut runner = AppRunner::new();
+
+        runner.state.set_page(Page::LoadUnload);
+        runner.state.temperatures.filament_load_target = 240.0;
+
+        runner
+            .handle_event(AppEvent::hmi(HmiEvent::touch(4, 8)))
+            .unwrap();
+
+        assert_eq!(runner.state.temperatures.filament_load_target, 250.0);
+        assert_eq!(runner.hmi_commands, vec![HmiCommand::value("n1", 250)]);
+        assert!(runner.moonraker_requests.is_empty());
+    }
+
+    #[test]
+    fn load_unload_during_printing_shows_alert_and_delayed_restore() {
+        let mut runner = AppRunner::new();
+
+        runner.state.set_page(Page::LoadUnload);
+        runner.state.printer.status = PrinterStatus::Printing;
+        runner.state.temperatures.filament_load_target = 240.0;
+
+        runner
+            .handle_event(AppEvent::hmi(HmiEvent::touch(4, 5)))
+            .unwrap();
+
+        assert_eq!(
+            runner.hmi_commands,
+            vec![
+                HmiCommand::page(56),
+                HmiCommand::text("t0", "Printing is active"),
+            ]
+        );
+        assert!(runner.moonraker_requests.is_empty());
+        assert_eq!(runner.delayed_hmi_batches.len(), 1);
+        assert_eq!(runner.delayed_hmi_batches[0].delay, Duration::from_secs(2));
+        assert_eq!(
+            runner.delayed_hmi_batches[0].commands,
+            vec![
+                HmiCommand::page(Page::LoadUnload.id()),
+                HmiCommand::value("n1", 240),
             ]
         );
     }

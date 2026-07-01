@@ -17,6 +17,7 @@ pub enum UiIntent {
     SetFanPercent { fan: FanKind, percent: u8 },
     SetNozzleTarget { celsius: i32 },
     SetBedTarget { celsius: i32 },
+    AdjustFilamentLoadTarget { delta: i32 },
 
     HomeAllAxes,
     MoveAxis { axis: Axis, distance: f32 },

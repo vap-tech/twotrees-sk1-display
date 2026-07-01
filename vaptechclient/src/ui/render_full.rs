@@ -24,6 +24,7 @@ pub fn render_full_target(target: RenderTarget, state: &AppState) -> Vec<HmiComm
         | RenderTarget::Result(ResultMode::Failed)
         | RenderTarget::Error => render_result_full(false),
         RenderTarget::MoveTemp => render_move_temp_full(state),
+        RenderTarget::LoadUnload => render_load_unload_full(state),
         RenderTarget::Fans => render_fans_full(state),
         RenderTarget::Settings => render_settings_full(state),
         _ => Vec::new(),
@@ -74,6 +75,13 @@ fn render_fans_full(state: &AppState) -> Vec<HmiCommand> {
         HmiCommand::value("h2", state.fans.filter.percent as i32),
         HmiCommand::value("n2", state.fans.filter.percent as i32),
     ]
+}
+
+fn render_load_unload_full(state: &AppState) -> Vec<HmiCommand> {
+    vec![HmiCommand::value(
+        "n1",
+        round_temperature(state.temperatures.filament_load_target),
+    )]
 }
 
 fn render_print_full(state: &AppState) -> Vec<HmiCommand> {
@@ -248,6 +256,18 @@ mod tests {
                 HmiCommand::value("n2", 9),
             ]
         );
+    }
+
+    #[test]
+    fn render_load_unload_full_includes_filament_temperature() {
+        let mut state = AppState::default();
+
+        state.set_page(Page::LoadUnload);
+        state.temperatures.filament_load_target = 230.0;
+
+        let commands = render_full(&state);
+
+        assert_eq!(commands, vec![HmiCommand::value("n1", 230)]);
     }
 
     #[test]

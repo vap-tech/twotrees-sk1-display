@@ -51,12 +51,17 @@ fn render_home_full(state: &AppState) -> Vec<HmiCommand> {
 }
 
 fn render_move_temp_full(state: &AppState) -> Vec<HmiCommand> {
+    let (b5_pic, b6_pic, b7_pic) = move_distance_pics(state.hmi.move_distance);
+
     vec![
-        HmiCommand::value("n0", round_temperature(state.temperatures.nozzle.current)),
-        HmiCommand::value("n1", round_temperature(state.temperatures.nozzle.target)),
-        HmiCommand::value("n4", round_temperature(state.temperatures.bed.current)),
-        HmiCommand::value("n5", round_temperature(state.temperatures.bed.target)),
-        HmiCommand::value("n3", state.hmi.move_distance.value_mm() as i32),
+        HmiCommand::visible("t2", false),
+        HmiCommand::picture("b5", b5_pic),
+        HmiCommand::picture("b6", b6_pic),
+        HmiCommand::picture("b7", b7_pic),
+        HmiCommand::value("n3", round_temperature(state.temperatures.nozzle.current)),
+        HmiCommand::value("n0", round_temperature(state.temperatures.nozzle.target)),
+        HmiCommand::value("n2", round_temperature(state.temperatures.bed.current)),
+        HmiCommand::value("n1", round_temperature(state.temperatures.bed.target)),
     ]
 }
 
@@ -142,6 +147,14 @@ fn any_fan_enabled(state: &AppState) -> bool {
     state.fans.part.percent > 0 || state.fans.side.percent > 0 || state.fans.filter.percent > 0
 }
 
+fn move_distance_pics(distance: crate::app::state::MoveDistance) -> (u16, u16, u16) {
+    match distance {
+        crate::app::state::MoveDistance::Mm1 => (7, 6, 6),
+        crate::app::state::MoveDistance::Mm10 => (6, 7, 6),
+        crate::app::state::MoveDistance::Mm30 => (6, 6, 7),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -201,11 +214,14 @@ mod tests {
         assert_eq!(
             commands,
             vec![
-                HmiCommand::value("n0", 200),
-                HmiCommand::value("n1", 210),
-                HmiCommand::value("n4", 50),
-                HmiCommand::value("n5", 55),
-                HmiCommand::value("n3", 30),
+                HmiCommand::visible("t2", false),
+                HmiCommand::picture("b5", 6),
+                HmiCommand::picture("b6", 6),
+                HmiCommand::picture("b7", 7),
+                HmiCommand::value("n3", 200),
+                HmiCommand::value("n0", 210),
+                HmiCommand::value("n2", 50),
+                HmiCommand::value("n1", 55),
             ]
         );
     }

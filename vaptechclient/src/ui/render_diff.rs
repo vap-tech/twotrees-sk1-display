@@ -38,14 +38,48 @@ fn render_home_diff(old: &AppState, new: &AppState, target: RenderTarget) -> Vec
 }
 
 fn render_move_temp_diff(old: &AppState, new: &AppState) -> Vec<HmiCommand> {
-    let mut commands = render_temperature_diff(old, new);
+    let mut commands = render_move_temp_temperature_diff(old, new);
 
     if old.hmi.move_distance != new.hmi.move_distance {
-        commands.push(HmiCommand::value(
-            "n3",
-            new.hmi.move_distance.value_mm() as i32,
-        ));
+        let (b5_pic, b6_pic, b7_pic) = move_distance_pics(new.hmi.move_distance);
+        commands.push(HmiCommand::picture("b5", b5_pic));
+        commands.push(HmiCommand::picture("b6", b6_pic));
+        commands.push(HmiCommand::picture("b7", b7_pic));
     }
+
+    commands
+}
+
+fn render_move_temp_temperature_diff(old: &AppState, new: &AppState) -> Vec<HmiCommand> {
+    let mut commands = Vec::new();
+
+    push_if_changed(
+        &mut commands,
+        "n3",
+        round_temperature(old.temperatures.nozzle.current),
+        round_temperature(new.temperatures.nozzle.current),
+    );
+
+    push_if_changed(
+        &mut commands,
+        "n0",
+        round_temperature(old.temperatures.nozzle.target),
+        round_temperature(new.temperatures.nozzle.target),
+    );
+
+    push_if_changed(
+        &mut commands,
+        "n2",
+        round_temperature(old.temperatures.bed.current),
+        round_temperature(new.temperatures.bed.current),
+    );
+
+    push_if_changed(
+        &mut commands,
+        "n1",
+        round_temperature(old.temperatures.bed.target),
+        round_temperature(new.temperatures.bed.target),
+    );
 
     commands
 }
@@ -203,6 +237,14 @@ fn any_fan_enabled(state: &AppState) -> bool {
     state.fans.part.percent > 0 || state.fans.side.percent > 0 || state.fans.filter.percent > 0
 }
 
+fn move_distance_pics(distance: crate::app::state::MoveDistance) -> (u16, u16, u16) {
+    match distance {
+        crate::app::state::MoveDistance::Mm1 => (7, 6, 6),
+        crate::app::state::MoveDistance::Mm10 => (6, 7, 6),
+        crate::app::state::MoveDistance::Mm30 => (6, 6, 7),
+    }
+}
+
 fn render_temperature_diff(old: &AppState, new: &AppState) -> Vec<HmiCommand> {
     let mut commands = Vec::new();
 
@@ -308,11 +350,14 @@ mod tests {
             commands,
             vec![
                 HmiCommand::page(Page::MoveTemp.id()),
-                HmiCommand::value("n0", 200),
-                HmiCommand::value("n1", 210),
-                HmiCommand::value("n4", 50),
-                HmiCommand::value("n5", 55),
-                HmiCommand::value("n3", 30),
+                HmiCommand::visible("t2", false),
+                HmiCommand::picture("b5", 6),
+                HmiCommand::picture("b6", 6),
+                HmiCommand::picture("b7", 7),
+                HmiCommand::value("n3", 200),
+                HmiCommand::value("n0", 210),
+                HmiCommand::value("n2", 50),
+                HmiCommand::value("n1", 55),
             ]
         );
     }
@@ -420,7 +465,38 @@ mod tests {
 
         let commands = render_diff(&old, &new);
 
-        assert_eq!(commands, vec![HmiCommand::value("n3", 30)]);
+        assert_eq!(
+            commands,
+            vec![
+                HmiCommand::picture("b5", 6),
+                HmiCommand::picture("b6", 6),
+                HmiCommand::picture("b7", 7),
+            ]
+        );
+    }
+
+    #[test]
+    fn same_move_temp_page_temperature_change_uses_move_temp_components() {
+        let mut old = AppState::default();
+        old.set_page(Page::MoveTemp);
+        old.set_nozzle_temperature(200.0, 210.0);
+        old.set_bed_temperature(50.0, 55.0);
+
+        let mut new = old.clone();
+        new.set_nozzle_temperature(201.0, 211.0);
+        new.set_bed_temperature(51.0, 56.0);
+
+        let commands = render_diff(&old, &new);
+
+        assert_eq!(
+            commands,
+            vec![
+                HmiCommand::value("n3", 201),
+                HmiCommand::value("n0", 211),
+                HmiCommand::value("n2", 51),
+                HmiCommand::value("n1", 56),
+            ]
+        );
     }
 
     #[test]

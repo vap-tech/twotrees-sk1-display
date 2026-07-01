@@ -113,12 +113,21 @@ impl AppRunner {
         self.moonraker_requests
             .extend(moonraker_requests_for_intent(&self.state, &intent));
 
-        self.hmi_commands
-            .extend(render_diff(&old_state, &self.state));
-
         let new_target = resolve_render_target(&self.state);
+
         if old_target != new_target {
+            self.hmi_commands
+                .extend(render_diff(&old_state, &self.state));
             self.request_thumbnail_for_target(new_target);
+        } else if intent.is_navigation() && !self.state.hmi.navigation_locked {
+            self.hmi_commands
+                .push(HmiCommand::page(new_target.page_id()));
+            self.hmi_commands
+                .extend(render_full_target(new_target, &self.state));
+            self.request_thumbnail_for_target(new_target);
+        } else {
+            self.hmi_commands
+                .extend(render_diff(&old_state, &self.state));
         }
     }
 
@@ -321,11 +330,42 @@ mod tests {
             runner.hmi_commands,
             vec![
                 HmiCommand::page(Page::MoveTemp.id()),
+                HmiCommand::visible("t2", false),
+                HmiCommand::picture("b5", 6),
+                HmiCommand::picture("b6", 7),
+                HmiCommand::picture("b7", 6),
+                HmiCommand::value("n3", 0),
                 HmiCommand::value("n0", 0),
+                HmiCommand::value("n2", 0),
                 HmiCommand::value("n1", 0),
-                HmiCommand::value("n4", 0),
-                HmiCommand::value("n5", 0),
-                HmiCommand::value("n3", 10),
+            ]
+        );
+    }
+
+    #[test]
+    fn same_target_navigation_forces_full_render() {
+        let mut runner = AppRunner::new();
+
+        runner.state.set_page(Page::MoveTemp);
+        runner.state.set_nozzle_temperature(215.0, 220.0);
+        runner.state.set_bed_temperature(60.0, 60.0);
+
+        runner
+            .handle_event(AppEvent::hmi(HmiEvent::touch(3, 20)))
+            .unwrap();
+
+        assert_eq!(
+            runner.hmi_commands,
+            vec![
+                HmiCommand::page(Page::MoveTemp.id()),
+                HmiCommand::visible("t2", false),
+                HmiCommand::picture("b5", 6),
+                HmiCommand::picture("b6", 7),
+                HmiCommand::picture("b7", 6),
+                HmiCommand::value("n3", 215),
+                HmiCommand::value("n0", 220),
+                HmiCommand::value("n2", 60),
+                HmiCommand::value("n1", 60),
             ]
         );
     }

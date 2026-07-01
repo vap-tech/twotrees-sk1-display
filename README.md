@@ -235,6 +235,55 @@ CaseLightIcon:
   on    -> pic 3
 ```
 
+### Установка на принтер
+
+Rust toolchain на принтер ставить не нужно. Нормальный путь сейчас такой:
+
+```text
+ноут/ПК
+  cargo build --release --target aarch64-unknown-linux-musl
+      ↓
+принтер
+  /usr/local/bin/vaptechclient
+  /etc/vaptechclient/config.toml
+  /etc/systemd/system/vaptechclient.service
+```
+
+Готовые шаблоны лежат в `vaptechclient/packaging/`.
+
+Собрать пакетный набор:
+
+```bash
+cd vaptechclient
+./packaging/build-release.sh
+```
+
+Положить на принтер и перезапустить service:
+
+```bash
+cd vaptechclient
+./packaging/deploy.sh 192.168.0.20
+```
+
+Первым делом после установки проверьте на принтере:
+
+```bash
+sudo nano /etc/vaptechclient/config.toml
+sudo systemctl status vaptechclient
+sudo journalctl -u vaptechclient -f
+```
+
+В конфиге особенно важен путь к UART дисплея:
+
+```toml
+[hmi]
+serial = "/dev/ttyS1"
+baud = 115200
+```
+
+Если клиент запускается прямо на принтере, Moonraker обычно указывается как
+`127.0.0.1:7125`.
+
 ### Как добавить touch-кнопку
 
 1. Добавить семантический intent в `src/ui/intent.rs`.

@@ -1,0 +1,26 @@
+# Runtime config for vaptechclient when it runs directly on the printer.
+# Copy to /etc/vaptechclient/config.toml and adjust the HMI serial device.
+
+[printer]
+host = "127.0.0.1"
+moonraker_port = 7125
+
+[hmi]
+# Stock TJC/HMI display UART on the SK1 host board.
+serial = "/dev/ttyS1"
+baud = 115200
+
+[ui]
+startup_page = 0
+language = "ru"
+thumbnail_cache = "/tmp/vaptechclient/thumbnails"
+
+[tx]
+chunk_size = 512
+chunk_delay_ms = 1
+queue_size = 512
+
+[log]
+level = "info"
+touch_level = "info"
+numeric_level = "info"

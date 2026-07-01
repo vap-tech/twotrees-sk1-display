@@ -23,12 +23,36 @@ pub fn route_touch(page: u8, component: u8) -> UiIntent {
         (0, 5) => UiIntent::ToggleCaseLight,
         (0, 6) => UiIntent::Navigate(Page::Fans),
 
-        // Settings/System page
-        (11, 5) => UiIntent::Navigate(Page::Network),
-        (11, 6) => UiIntent::Navigate(Page::Calibration),
+        // Move/Temp page local tabs.
+        (3, 20) => UiIntent::Navigate(Page::MoveTemp),
+        (3, 21) => UiIntent::Navigate(Page::LoadUnload),
+        (3, 22) => UiIntent::Navigate(Page::Fans),
 
-        // Calibration page
-        (33, 5) => UiIntent::HomeAllAxes,
+        // Load/Unload page local tabs.
+        (4, 9) => UiIntent::Navigate(Page::MoveTemp),
+        (4, 10) => UiIntent::Navigate(Page::LoadUnload),
+        (4, 11) => UiIntent::Navigate(Page::Fans),
+
+        // Fans page local tabs.
+        (6, 5) => UiIntent::Navigate(Page::MoveTemp),
+        (6, 6) => UiIntent::Navigate(Page::LoadUnload),
+        (6, 7) => UiIntent::Navigate(Page::Fans),
+
+        // System page local tabs. These component ids differ from Network and
+        // Calibration pages, so keep them explicit instead of guessing a group.
+        (11, 5) => UiIntent::Navigate(Page::Settings),
+        (11, 6) => UiIntent::Navigate(Page::Network),
+        (11, 11) => UiIntent::Navigate(Page::Calibration),
+
+        // Network page local tabs. Sniffed ids do not match System page.
+        (18, 5) => UiIntent::Navigate(Page::Settings),
+        (18, 6) => UiIntent::Navigate(Page::Network),
+        (18, 13) => UiIntent::Navigate(Page::Calibration),
+
+        // Calibration page local tabs.
+        (33, 5) => UiIntent::Navigate(Page::Settings),
+        (33, 6) => UiIntent::Navigate(Page::Network),
+        (33, 7) => UiIntent::Navigate(Page::Calibration),
 
         // Print page
         (2, 5) => UiIntent::TogglePauseResumePrint,
@@ -146,9 +170,24 @@ mod tests {
     }
 
     #[test]
-    fn settings_local_components_go_to_network_and_calibration() {
-        assert_eq!(route_touch(11, 5), UiIntent::Navigate(Page::Network));
-        assert_eq!(route_touch(11, 6), UiIntent::Navigate(Page::Calibration));
+    fn move_temp_page_local_components_are_explicit_navigation() {
+        assert_eq!(route_touch(3, 20), UiIntent::Navigate(Page::MoveTemp));
+        assert_eq!(route_touch(3, 21), UiIntent::Navigate(Page::LoadUnload));
+        assert_eq!(route_touch(3, 22), UiIntent::Navigate(Page::Fans));
+    }
+
+    #[test]
+    fn load_unload_page_local_components_are_explicit_navigation() {
+        assert_eq!(route_touch(4, 9), UiIntent::Navigate(Page::MoveTemp));
+        assert_eq!(route_touch(4, 10), UiIntent::Navigate(Page::LoadUnload));
+        assert_eq!(route_touch(4, 11), UiIntent::Navigate(Page::Fans));
+    }
+
+    #[test]
+    fn fans_page_local_components_are_explicit_navigation() {
+        assert_eq!(route_touch(6, 5), UiIntent::Navigate(Page::MoveTemp));
+        assert_eq!(route_touch(6, 6), UiIntent::Navigate(Page::LoadUnload));
+        assert_eq!(route_touch(6, 7), UiIntent::Navigate(Page::Fans));
     }
 
     #[test]
@@ -167,6 +206,27 @@ mod tests {
             assert_eq!(route_touch(page, 6), UiIntent::Navigate(Page::UsbFiles));
             assert_eq!(route_touch(page, 7), UiIntent::Navigate(Page::FileHistory));
         }
+    }
+
+    #[test]
+    fn system_page_local_components_are_explicit_navigation() {
+        assert_eq!(route_touch(11, 5), UiIntent::Navigate(Page::Settings));
+        assert_eq!(route_touch(11, 6), UiIntent::Navigate(Page::Network));
+        assert_eq!(route_touch(11, 11), UiIntent::Navigate(Page::Calibration));
+    }
+
+    #[test]
+    fn network_page_local_components_are_explicit_navigation() {
+        assert_eq!(route_touch(18, 5), UiIntent::Navigate(Page::Settings));
+        assert_eq!(route_touch(18, 6), UiIntent::Navigate(Page::Network));
+        assert_eq!(route_touch(18, 13), UiIntent::Navigate(Page::Calibration));
+    }
+
+    #[test]
+    fn calibration_page_local_components_are_explicit_navigation() {
+        assert_eq!(route_touch(33, 5), UiIntent::Navigate(Page::Settings));
+        assert_eq!(route_touch(33, 6), UiIntent::Navigate(Page::Network));
+        assert_eq!(route_touch(33, 7), UiIntent::Navigate(Page::Calibration));
     }
 
     #[test]
@@ -192,11 +252,6 @@ mod tests {
     #[test]
     fn print_result_component_5_reprints_current_file() {
         assert_eq!(route_touch(77, 5), UiIntent::ReprintCurrentFile);
-    }
-
-    #[test]
-    fn calibration_local_component_5_homes_all_axes() {
-        assert_eq!(route_touch(33, 5), UiIntent::HomeAllAxes);
     }
 
     #[test]

@@ -1,4 +1,4 @@
-use crate::app::state::{ActiveOperation, AppState, FanKind, Page, PrinterStatus};
+use crate::app::state::{ActiveOperation, AppState, FanKind, PrinterStatus};
 use crate::hmi::command::HmiCommand;
 use crate::ui::effect::{MoonrakerRequest, UiEffect};
 use crate::ui::intent::UiIntent;
@@ -166,12 +166,11 @@ pub fn handle_action(state: &mut AppState, intent: UiIntent) -> Vec<UiEffect> {
 }
 
 fn is_printing_blocked_intent(intent: &UiIntent) -> bool {
-    // Во время печати запрещаем все, что может двигать механику или запускать
-    // загрузку/выгрузку пластика. Настройки и файлы смотреть можно.
+    // Во время печати страницы можно открывать для просмотра, но запрещаем
+    // сами действия, которые могут двигать механику или запускать филамент.
     matches!(
         intent,
-        UiIntent::Navigate(Page::Calibration | Page::MoveTemp | Page::LoadUnload)
-            | UiIntent::HomeAllAxes
+        UiIntent::HomeAllAxes
             | UiIntent::MoveAxis { .. }
             | UiIntent::LoadFilament
             | UiIntent::UnloadFilament
@@ -179,13 +178,8 @@ fn is_printing_blocked_intent(intent: &UiIntent) -> bool {
 }
 
 fn is_paused_blocked_intent(intent: &UiIntent) -> bool {
-    // На паузе load/unload допустим, но homing/move/calibration все еще опасны.
-    matches!(
-        intent,
-        UiIntent::Navigate(Page::Calibration | Page::MoveTemp)
-            | UiIntent::HomeAllAxes
-            | UiIntent::MoveAxis { .. }
-    )
+    // На паузе load/unload допустим, но homing/move все еще опасны.
+    matches!(intent, UiIntent::HomeAllAxes | UiIntent::MoveAxis { .. })
 }
 
 fn next_fan_percent(state: &AppState, fan: FanKind) -> u8 {
@@ -201,7 +195,7 @@ fn next_fan_percent(state: &AppState, fan: FanKind) -> u8 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::app::state::MoveDistance;
+    use crate::app::state::{MoveDistance, Page};
     use crate::ui::intent::Axis;
 
     #[test]
@@ -339,12 +333,12 @@ mod tests {
     }
 
     #[test]
-    fn printing_blocks_calibration_move_and_load_unload_navigation() {
+    fn printing_allows_navigation_to_dangerous_pages_for_viewing() {
         let mut state = AppState::default();
         state.printer.status = PrinterStatus::Printing;
 
         for page in [Page::Calibration, Page::MoveTemp, Page::LoadUnload] {
-            assert!(intent_is_blocked_by_printer_state(
+            assert!(!intent_is_blocked_by_printer_state(
                 &state,
                 &UiIntent::Navigate(page)
             ));
@@ -385,21 +379,32 @@ mod tests {
     }
 
     #[test]
-    fn paused_blocks_calibration_and_move_but_allows_load_unload() {
+    fn paused_allows_navigation_and_blocks_only_movement_actions() {
         let mut state = AppState::default();
         state.printer.status = PrinterStatus::Paused;
 
-        assert!(intent_is_blocked_by_printer_state(
+        assert!(!intent_is_blocked_by_printer_state(
             &state,
             &UiIntent::Navigate(Page::Calibration)
         ));
-        assert!(intent_is_blocked_by_printer_state(
+        assert!(!intent_is_blocked_by_printer_state(
             &state,
             &UiIntent::Navigate(Page::MoveTemp)
         ));
         assert!(!intent_is_blocked_by_printer_state(
             &state,
             &UiIntent::Navigate(Page::LoadUnload)
+        ));
+        assert!(intent_is_blocked_by_printer_state(
+            &state,
+            &UiIntent::HomeAllAxes
+        ));
+        assert!(intent_is_blocked_by_printer_state(
+            &state,
+            &UiIntent::MoveAxis {
+                axis: Axis::Y,
+                distance: 1.0,
+            }
         ));
     }
 

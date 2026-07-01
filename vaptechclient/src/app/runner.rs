@@ -345,25 +345,6 @@ mod tests {
     }
 
     #[test]
-    fn touch_calibration_home_all_axes_creates_moonraker_request() {
-        let mut runner = AppRunner::new();
-
-        runner
-            .handle_event(AppEvent::hmi(HmiEvent::touch(33, 5)))
-            .unwrap();
-
-        assert_eq!(
-            runner.state.process.active_operation,
-            ActiveOperation::Homing
-        );
-
-        assert_eq!(
-            runner.moonraker_requests,
-            vec![MoonrakerRequest::SendGcode("G28".to_string())]
-        );
-    }
-
-    #[test]
     fn touch_print_component_5_pauses_when_printing() {
         let mut runner = AppRunner::new();
 
